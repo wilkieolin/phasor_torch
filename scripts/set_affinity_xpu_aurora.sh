@@ -18,4 +18,10 @@ gpu=$(( tile / 2 ))
 sub=$(( tile % 2 ))
 export ZE_AFFINITY_MASK="${gpu}.${sub}"
 
+# Set PHASOR_AFFINITY_VERBOSE=1 to print the rank->tile mapping (useful in the
+# smoke to confirm workers land on distinct tiles).
+if [[ -n "${PHASOR_AFFINITY_VERBOSE:-}" ]]; then
+  echo "rank=${PALS_RANKID:-?} local=${lr} -> ZE_AFFINITY_MASK=${ZE_AFFINITY_MASK}" >&2
+fi
+
 exec "$@"

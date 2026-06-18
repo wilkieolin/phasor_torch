@@ -1,0 +1,51 @@
+#!/bin/bash -l
+# Single-node DEBUG-queue smoke for the libEnsemble HPO + XPU tile pinning.
+# Validates: libE under mpiexec, the ytopt generator + sim workers, per-worker
+# trials landing on DISTINCT tiles (ZE_AFFINITY_MASK), all on xpu. Synthetic
+# source + epochs=1 keep it fast (no audio/FFT cost). Edit -A/-q to your project.
+#   qsub scripts/hpo_aurora_smoke.pbs
+#
+#PBS -A EE-ECP
+#PBS -q debug
+#PBS -l select=1
+#PBS -l walltime=00:20:00
+#PBS -l filesystems=home:flare
+#PBS -N phasor_hpo_smoke
+#PBS -j oe
+set -euo pipefail
+
+module load frameworks
+source /flare/EE-ECP/wolin/envs/phasor_hpo/bin/activate
+
+REPO=/flare/EE-ECP/wolin/phasor_torch
+cd "$REPO"
+export PYTHONPATH="$REPO"
+export PYTHONUNBUFFERED=1
+
+# ---- tiny synthetic study (no audio dependency) ----
+export PHASOR_HPO_BODY=lca
+export PHASOR_HPO_SOURCE=synthetic
+export PHASOR_HPO_EPOCHS_MIN=1
+export PHASOR_HPO_EPOCHS_MAX=1
+export PHASOR_HPO_DEVICE=xpu
+export PHASOR_HPO_OUTDIR=/flare/EE-ECP/wolin/hpo_smoke/lca
+export PHASOR_HPO_ENSEMBLE_DIR=${PHASOR_HPO_OUTDIR}/ensemble
+export PHASOR_AFFINITY_VERBOSE=1            # print rank -> tile mapping
+mkdir -p "$PHASOR_HPO_OUTDIR"
+
+MAX_EVALS=6
+# 4 ranks: manager + generator + 2 sim workers => 2 concurrent trials on 2 tiles.
+RANKS=4
+TILES_PER_NODE=$RANKS                       # map local ranks 0..3 -> tiles 0.0,0.1,1.0,1.1
+
+echo "smoke: ranks=$RANKS concurrent_trials=$(( RANKS - 2 )) max_evals=$MAX_EVALS device=xpu"
+
+PHASOR_TILES_PER_NODE=$TILES_PER_NODE \
+mpiexec -np "$RANKS" -ppn "$RANKS" \
+    scripts/set_affinity_xpu_aurora.sh \
+    python -m phasor_torch.hpo_libe --learner RF --max-evals "$MAX_EVALS"
+
+echo "=== results ==="
+cat "$PHASOR_HPO_OUTDIR/results.csv" 2>/dev/null || echo "(no results.csv)"
+echo "=== trials ==="
+ls -d "$PHASOR_HPO_OUTDIR"/trial_* 2>/dev/null | wc -l
