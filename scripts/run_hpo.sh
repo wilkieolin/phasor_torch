@@ -4,9 +4,10 @@
 # phasor_torch.hpo.Problem, which reads PHASOR_HPO_* env vars set below.
 #
 # Examples:
-#   # local smoke (synthetic, fast):
-#   scripts/run_hpo.sh --body lca --source synthetic --max-evals 2 \
-#       --epochs-min 1 --epochs-max 1 --device cpu
+#   # Aurora smoke (Ray hangs on PBS nodes -> use the subprocess evaluator):
+#   scripts/run_hpo.sh --body lca --source synthetic --evaluator subprocess \
+#       --max-evals 1 --epochs-min 1 --epochs-max 1 --device cpu \
+#       --outdir /flare/EE-ECP/wolin/hpo_smoke
 #   # real audio sweep:
 #   scripts/run_hpo.sh --body lca --max-evals 50 --epochs-min 30 --epochs-max 80
 #
@@ -19,19 +20,15 @@ cd "$(dirname "$0")/.."
 export PYTHONPATH="${PYTHONPATH:-$PWD}"
 export PYTHONUNBUFFERED=1
 
-# Ray on PBS (Aurora): $TMPDIR is a very long per-job path, so Ray's AF_UNIX
-# plasma socket path would exceed the 107-byte limit. ytopt calls ray.init()
-# with no temp dir, so redirect Ray (and tempfiles) to a short node-local dir.
-export RAY_TMPDIR="${RAY_TMPDIR:-/tmp/$USER/ray}"
-export TMPDIR="$RAY_TMPDIR"
-mkdir -p "$RAY_TMPDIR"
-
 BODY=lca
 MAX_EVALS=50
 EPOCHS_MIN=30
 EPOCHS_MAX=80
 LEARNER=RF
 SOURCE=audio
+EVALUATOR=ray            # 'ray' | 'subprocess'. subprocess avoids Ray entirely
+                         # (no plasma socket) — use it on HPC nodes where Ray's
+                         # ray.init() hangs / the AF_UNIX path is problematic.
 TRAIN=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw.h5
 TEST=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw_test.h5
 OUTDIR=hpo_runs
@@ -46,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --epochs-min) EPOCHS_MIN="$2"; shift 2;;
     --epochs-max) EPOCHS_MAX="$2"; shift 2;;
     --source) SOURCE="$2"; shift 2;;
+    --evaluator) EVALUATOR="$2"; shift 2;;
     --train-path) TRAIN="$2"; shift 2;;
     --test-path) TEST="$2"; shift 2;;
     --train-limit) TRAIN_LIMIT="$2"; shift 2;;
@@ -56,6 +54,16 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+# Ray-only: its AF_UNIX plasma socket must sit on a SHORT, node-local FS — the
+# PBS $TMPDIR is too long (107-byte limit) and Lustre (/flare) doesn't support
+# domain sockets. /dev/shm is node-local tmpfs (where Ray's object store lives
+# anyway). Artifacts/results stay on /flare via --outdir. Override with RAY_TMPDIR.
+if [[ "$EVALUATOR" == "ray" ]]; then
+  export RAY_TMPDIR="${RAY_TMPDIR:-/dev/shm/$USER/ray}"
+  export TMPDIR="$RAY_TMPDIR"
+  mkdir -p "$RAY_TMPDIR"
+fi
 
 export PHASOR_HPO_BODY="$BODY"
 export PHASOR_HPO_SOURCE="$SOURCE"
@@ -69,11 +77,11 @@ export PHASOR_HPO_OUTDIR="$OUTDIR/$BODY"
 [ -n "$TEST_LIMIT" ] && export PHASOR_HPO_TEST_LIMIT="$TEST_LIMIT"
 
 mkdir -p "$PHASOR_HPO_OUTDIR"
-echo "study: body=$BODY source=$SOURCE max_evals=$MAX_EVALS epochs=[$EPOCHS_MIN,$EPOCHS_MAX] device=$DEVICE"
+echo "study: body=$BODY source=$SOURCE evaluator=$EVALUATOR max_evals=$MAX_EVALS epochs=[$EPOCHS_MIN,$EPOCHS_MAX] device=$DEVICE"
 echo "artifacts: $PHASOR_HPO_OUTDIR   (ambs results.csv in $PWD)"
 
 python -m ytopt.search.ambs \
-  --evaluator ray \
+  --evaluator "$EVALUATOR" \
   --problem phasor_torch.hpo.Problem \
   --max-evals "$MAX_EVALS" \
   --learner "$LEARNER"
