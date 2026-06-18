@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Create the dedicated `phasor_hpo` conda env (isolated from `nubun`) with the
-# Ray + ytopt stack. Cloning nubun reuses the working torch build so trials can
-# import phasor_torch + torch while ytopt orchestrates.
+# ytopt stack. Cloning nubun reuses the working torch build so trials can import
+# phasor_torch + torch while ytopt orchestrates. (No Ray — it doesn't work on
+# PBS nodes; libEnsemble, pulled in by ytopt, handles multi-node.)
+#
+# On Aurora prefer a venv on the frameworks module instead of cloning, then run
+# the two pip blocks below + scripts/patch_skopt_imputer.py.
 #
 # Usage: scripts/setup_hpo_env.sh [env_name] [source_env]
 #   env_name    target conda env to create   (default: phasor_hpo)
@@ -10,6 +14,7 @@
 # under $YTOPT_SRC_DIR (default ~/code/ytopt_src).
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_NAME="${1:-phasor_hpo}"
 SRC_ENV="${2:-nubun}"
 WORK="${YTOPT_SRC_DIR:-$HOME/code/ytopt_src}"
@@ -36,6 +41,9 @@ echo ">> installing ytopt-team forks under $WORK"
 [ -d ytopt ] || git clone -b main https://github.com/ytopt-team/ytopt.git
 "$PY" -m pip install -e ytopt
 
+echo ">> patching dh-scikit-optimize imputers for modern numpy/sklearn"
+"$PY" "$SCRIPT_DIR/patch_skopt_imputer.py"
+
 echo ">> verifying imports"
-"$PY" -c "import ytopt, autotune, ConfigSpace, ray, skopt; print('hpo stack OK')"
+"$PY" -c "import ytopt, autotune, ConfigSpace, skopt; print('hpo stack OK')"
 echo ">> done. Activate with: conda activate $ENV_NAME"
