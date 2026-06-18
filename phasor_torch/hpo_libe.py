@@ -201,6 +201,10 @@ def main():
     libE_specs["ensemble_dir_path"] = os.environ.get(
         "PHASOR_HPO_ENSEMBLE_DIR", "./ensemble_" + secrets.token_hex(nbytes=4)
     )
+    # Allow re-running into the same ensemble dir (our per-trial artifacts are
+    # keyed by point hash and our results.csv is rewritten from the full history,
+    # so re-use is safe and avoids a manual rm between runs).
+    libE_specs["reuse_output_dir"] = True
 
     persis_info = add_unique_random_streams({}, nworkers + 1)
 

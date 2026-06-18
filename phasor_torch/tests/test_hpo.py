@@ -15,17 +15,19 @@ from phasor_torch.config import RunConfig
 
 
 def _full_point(body="lca"):
+    # Discrete params are integer indices into hpo.DISCRETE_CHOICES:
+    #   d_hidden_i=0 -> 64, n_heads_i=1 -> 4, n_anchors_i=1 -> 64
     p = {
         "lr": 5e-4,
-        "d_hidden": 64,
-        "n_heads": 4,
+        "d_hidden_i": 0,
+        "n_heads_i": 1,
         "init_scale": 2.5,
         "readout_frac": 0.3,
         "weight_decay": 1e-6,
         "epochs": 1,
     }
     if body == "lca":
-        p["n_anchors"] = 64
+        p["n_anchors_i"] = 1
     return p
 
 
@@ -37,9 +39,9 @@ def test_point_to_runconfig_lca_audio():
     assert isinstance(run, RunConfig)
     assert run.model.frontend == "resonant"
     assert run.model.body == "lca"
-    assert run.model.n_anchors == 64
+    assert run.model.n_anchors == 64          # n_anchors_i=1 -> 64
     assert run.model.n_classes == 30
-    assert run.model.d_hidden == 64 and run.model.n_heads == 4
+    assert run.model.d_hidden == 64 and run.model.n_heads == 4   # indices 0,1
     assert run.data.source == "audio"
     assert run.data.train_path == "/x/train.h5"
     assert run.data.train_limit == 64
@@ -62,15 +64,15 @@ def test_point_to_runconfig_coerces_numpy_scalars():
     base = hpo.HpoBase(body="lsa", source="synthetic", n_classes=10)
     point = {
         "lr": np.float64(3e-4),
-        "d_hidden": np.int64(128),
-        "n_heads": np.int64(8),
+        "d_hidden_i": np.int64(2),   # -> 256
+        "n_heads_i": np.int64(2),    # -> 8
         "init_scale": np.float64(4.0),
         "readout_frac": np.float64(0.2),
         "weight_decay": np.float64(1e-7),
         "epochs": np.int64(1),
     }
     run = hpo.point_to_runconfig(point, base)
-    assert run.model.d_hidden == 128 and isinstance(run.model.d_hidden, int)
+    assert run.model.d_hidden == 256 and isinstance(run.model.d_hidden, int)
     assert run.model.n_heads == 8 and isinstance(run.model.n_heads, int)
     assert isinstance(run.train.lr, float)
 
@@ -105,7 +107,7 @@ def test_objective_failure_returns_penalty(tmp_path, monkeypatch):
     monkeypatch.setenv("PHASOR_HPO_BODY", "lsa")
     monkeypatch.setenv("PHASOR_HPO_OUTDIR", str(tmp_path))
     bad = _full_point("lsa")
-    bad["d_hidden"] = 65          # not divisible by n_heads=4 -> body build fails
+    bad["n_heads_i"] = 9          # out-of-range index -> resolve raises -> penalty
     val = hpo.objective(bad)
     assert val == 1.0
     trials = list(tmp_path.glob("trial_*"))
@@ -121,8 +123,8 @@ def test_make_space_lca_has_anchors():
     cs = hpo.make_space(base)
     names = set(cs.keys()) if hasattr(cs, "keys") \
         else set(cs.get_hyperparameter_names())
-    assert "n_anchors" in names
-    assert {"lr", "d_hidden", "n_heads", "init_scale", "readout_frac",
+    assert "n_anchors_i" in names
+    assert {"lr", "d_hidden_i", "n_heads_i", "init_scale", "readout_frac",
             "weight_decay", "epochs"} <= names
 
 
@@ -132,7 +134,7 @@ def test_make_space_lsa_no_anchors():
     cs = hpo.make_space(base)
     names = set(cs.keys()) if hasattr(cs, "keys") \
         else set(cs.get_hyperparameter_names())
-    assert "n_anchors" not in names
+    assert "n_anchors_i" not in names
     assert "epochs" not in names   # fixed bounds -> not a swept dimension
 
 
@@ -153,6 +155,6 @@ def test_libe_field_specs_types():
     cs = hpo.make_space(hpo.HpoBase(body="lca", epochs_min=30, epochs_max=80))
     fields = dict(hpo_libe._field_specs(cs))
     assert fields["lr"] is float
-    assert fields["d_hidden"] is int          # int-choice categorical -> int
-    assert fields["n_anchors"] is int
+    assert fields["d_hidden_i"] is int        # integer index dim
+    assert fields["n_anchors_i"] is int
     assert fields["epochs"] is int

@@ -24,7 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -102,32 +102,46 @@ class HpoBase:
 # --------------------------------------------------------------------------
 
 
+# Ordered discrete params are searched as INTEGER INDEX dimensions ("<name>_i"),
+# NOT skopt Categoricals: dh-scikit-optimize's Categorical inverse_transform
+# breaks against modern numpy/sklearn ("argmax of an empty sequence"). Integer
+# dims never hit that path, and these sizes are genuinely ordinal. The index is
+# mapped back to the real value in point_to_runconfig.
+DISCRETE_CHOICES: dict[str, tuple[int, ...]] = {
+    "d_hidden": (64, 128, 256),
+    "n_heads": (2, 4, 8),
+    "n_anchors": (32, 64, 128),
+}
+DISCRETE_DEFAULT_IDX = {"d_hidden": 0, "n_heads": 1, "n_anchors": 0}  # 64, 4, 32
+
+
 def make_space(base: HpoBase):
     """Build the per-study ConfigSpace. Imports ConfigSpace lazily.
 
-    Supports the new (>=1.0 ``Float/Integer/Categorical``) and old
-    (``CSH.*Hyperparameter``) ConfigSpace APIs. ``n_anchors`` is added only for
-    the LCA body. Every ``d_hidden`` in {64,128,256} is divisible by every
-    ``n_heads`` in {2,4,8}, so no forbidden clauses are needed.
+    Discrete choices are Integer index dims (`d_hidden_i`/`n_heads_i`/
+    `n_anchors_i`); `lr`/`init_scale`/`readout_frac`/`weight_decay` are Float;
+    `epochs` is a swept Integer (omitted when its bounds are equal -> falls back
+    to `epochs_min`; ytopt's skopt fork has no Constant support). `n_anchors_i`
+    is added only for the LCA body. Supports new + old ConfigSpace APIs.
     """
     import ConfigSpace as CS
 
     lo_e, hi_e = sorted((int(base.epochs_min), int(base.epochs_max)))
     cs = CS.ConfigurationSpace(seed=base.seed)
-
-    # epochs is a swept dimension only when the bounds differ; when fixed
-    # (lo == hi) it is omitted here and point_to_runconfig falls back to
-    # base.epochs_min. (ytopt's skopt fork has no Constant-hyperparameter
-    # support, so a Constant would raise "Unknown Hyperparameter type".)
     sweep_epochs = lo_e < hi_e
 
+    def _idx_hi(name: str) -> int:
+        return len(DISCRETE_CHOICES[name]) - 1
+
     try:  # new convenience API (ConfigSpace >= 1.0)
-        from ConfigSpace import Categorical, Float, Integer
+        from ConfigSpace import Float, Integer
 
         params = [
             Float("lr", bounds=(1e-4, 1e-3), log=True, default=3e-4),
-            Categorical("d_hidden", [64, 128, 256], default=64),
-            Categorical("n_heads", [2, 4, 8], default=4),
+            Integer("d_hidden_i", bounds=(0, _idx_hi("d_hidden")),
+                    default=DISCRETE_DEFAULT_IDX["d_hidden"]),
+            Integer("n_heads_i", bounds=(0, _idx_hi("n_heads")),
+                    default=DISCRETE_DEFAULT_IDX["n_heads"]),
             Float("init_scale", bounds=(1.0, 5.0), default=3.0),
             Float("readout_frac", bounds=(0.1, 0.5), default=0.25),
             Float("weight_decay", bounds=(1e-8, 1e-3), log=True, default=1e-8),
@@ -135,15 +149,20 @@ def make_space(base: HpoBase):
         if sweep_epochs:
             params.append(Integer("epochs", bounds=(lo_e, hi_e), default=lo_e))
         if base.body == "lca":
-            params.append(Categorical("n_anchors", [32, 64, 128], default=32))
+            params.append(Integer("n_anchors_i", bounds=(0, _idx_hi("n_anchors")),
+                                  default=DISCRETE_DEFAULT_IDX["n_anchors"]))
     except ImportError:  # old API
         import ConfigSpace.hyperparameters as CSH
 
         params = [
             CSH.UniformFloatHyperparameter("lr", lower=1e-4, upper=1e-3, log=True,
                                            default_value=3e-4),
-            CSH.CategoricalHyperparameter("d_hidden", [64, 128, 256], default_value=64),
-            CSH.CategoricalHyperparameter("n_heads", [2, 4, 8], default_value=4),
+            CSH.UniformIntegerHyperparameter("d_hidden_i", lower=0,
+                                             upper=_idx_hi("d_hidden"),
+                                             default_value=DISCRETE_DEFAULT_IDX["d_hidden"]),
+            CSH.UniformIntegerHyperparameter("n_heads_i", lower=0,
+                                             upper=_idx_hi("n_heads"),
+                                             default_value=DISCRETE_DEFAULT_IDX["n_heads"]),
             CSH.UniformFloatHyperparameter("init_scale", lower=1.0, upper=5.0,
                                            default_value=3.0),
             CSH.UniformFloatHyperparameter("readout_frac", lower=0.1, upper=0.5,
@@ -155,8 +174,9 @@ def make_space(base: HpoBase):
             params.append(CSH.UniformIntegerHyperparameter("epochs", lower=lo_e,
                                                            upper=hi_e, default_value=lo_e))
         if base.body == "lca":
-            params.append(CSH.CategoricalHyperparameter("n_anchors", [32, 64, 128],
-                                                        default_value=32))
+            params.append(CSH.UniformIntegerHyperparameter("n_anchors_i", lower=0,
+                                                           upper=_idx_hi("n_anchors"),
+                                                           default_value=DISCRETE_DEFAULT_IDX["n_anchors"]))
 
     try:
         cs.add(params)               # ConfigSpace >= 1.0
@@ -177,8 +197,17 @@ def _scalar(v: Any) -> Any:
     return v
 
 
+def _resolve_discrete(p: dict, name: str) -> int:
+    """Map an `<name>_i` index in the point to its real value in DISCRETE_CHOICES."""
+    return int(DISCRETE_CHOICES[name][int(p[f"{name}_i"])])
+
+
 def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
-    """Merge a sampled ConfigSpace point with the fixed base into a RunConfig."""
+    """Merge a sampled ConfigSpace point with the fixed base into a RunConfig.
+
+    Discrete params arrive as integer indices (`d_hidden_i` etc.) and are mapped
+    back to their real values via DISCRETE_CHOICES.
+    """
     p = {k: _scalar(v) for k, v in point.items()}
 
     model: dict[str, Any] = {
@@ -187,14 +216,14 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
         "n_classes": int(base.n_classes),
         "n_freqs": int(base.n_freqs),
         "downsample_factor": int(base.downsample_factor),
-        "d_hidden": int(p["d_hidden"]),
-        "n_heads": int(p["n_heads"]),
+        "d_hidden": _resolve_discrete(p, "d_hidden"),
+        "n_heads": _resolve_discrete(p, "n_heads"),
         "init_scale": float(p["init_scale"]),
         "readout": "ssm",
         "readout_frac": float(p["readout_frac"]),
     }
     if base.body == "lca":
-        model["n_anchors"] = int(p["n_anchors"])
+        model["n_anchors"] = _resolve_discrete(p, "n_anchors")
 
     # epochs may be swept (in the point) or fixed (omitted -> base.epochs_min).
     epochs = int(p["epochs"]) if "epochs" in p else int(base.epochs_min)
@@ -256,8 +285,14 @@ def objective(point: dict) -> float:
         result = train(run, save_path=str(trial / "checkpoint.h5"))
         final = result.get("final") or {}
         test_acc = float(final.get("test_acc", 0.0))
-        (trial / "config.json").write_text(
-            json.dumps({k: _scalar(v) for k, v in point.items()}, indent=2, sort_keys=True))
+        # Record both the raw sampled point (indices) and the resolved config
+        # (real values) so the trial dir is human-readable.
+        (trial / "config.json").write_text(json.dumps({
+            "point": {k: _scalar(v) for k, v in point.items()},
+            "model": asdict(run.model),
+            "train": asdict(run.train),
+            "data": asdict(run.data),
+        }, indent=2, sort_keys=True))
         (trial / "history.json").write_text(json.dumps(result["history"], indent=2))
         return -test_acc
     except Exception as exc:  # keep the search alive; record the failure
