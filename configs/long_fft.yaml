@@ -1,0 +1,19 @@
+# Exercises the FFT causal-conv branch (causal_conv dispatches to FFT for L > 64).
+# Default max_length=32 stays on the Toeplitz path; 128 forces FFT everywhere.
+model:
+  in_dims: 64
+  d_hidden: 64
+  body: lsa
+  n_heads: 4
+  readout: ssm
+  n_classes: 10
+data:
+  task: copy
+  vocab_size: 10
+  max_length: 128
+  num_train: 1024
+  num_test: 256
+train:
+  epochs: 5
+  lr: 3.0e-4
+  batch_size: 32
