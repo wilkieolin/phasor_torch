@@ -19,6 +19,13 @@ cd "$(dirname "$0")/.."
 export PYTHONPATH="${PYTHONPATH:-$PWD}"
 export PYTHONUNBUFFERED=1
 
+# Ray on PBS (Aurora): $TMPDIR is a very long per-job path, so Ray's AF_UNIX
+# plasma socket path would exceed the 107-byte limit. ytopt calls ray.init()
+# with no temp dir, so redirect Ray (and tempfiles) to a short node-local dir.
+export RAY_TMPDIR="${RAY_TMPDIR:-/tmp/$USER/ray}"
+export TMPDIR="$RAY_TMPDIR"
+mkdir -p "$RAY_TMPDIR"
+
 BODY=lca
 MAX_EVALS=50
 EPOCHS_MIN=30
