@@ -16,10 +16,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
-# HPO driver (Ray + ytopt). The ytopt-team forks (dh-scikit-optimize, autotune,
-# ytopt) are git-only and installed editable by scripts/setup_hpo_env.sh; only
-# the PyPI-installable pieces are listed here.
-hpo = ["ray", "ConfigSpace"]
+# HPO driver (ytopt). The ytopt-team forks (dh-scikit-optimize, autotune, ytopt)
+# are git-only and installed editable by scripts/setup_hpo_env.sh (which also
+# brings in libEnsemble for the multi-node launcher); only the PyPI-installable
+# piece is listed here. No Ray — it doesn't work on PBS/HPC nodes.
+hpo = ["ConfigSpace"]
 
 [tool.setuptools.packages.find]
 where = ["."]

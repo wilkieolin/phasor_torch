@@ -20,7 +20,9 @@ conda create -y --clone "$SRC_ENV" -n "$ENV_NAME"
 PY="$(conda run -n "$ENV_NAME" which python)"
 echo ">> using python: $PY"
 "$PY" -m pip install --upgrade pip
-"$PY" -m pip install "ConfigSpace" "ray"
+# ConfigSpace for the search space; libEnsemble (multi-node launcher) is pulled
+# in as a ytopt dependency below. No Ray — it doesn't work on PBS nodes.
+"$PY" -m pip install "ConfigSpace"
 
 mkdir -p "$WORK"; cd "$WORK"
 echo ">> installing ytopt-team forks under $WORK"
