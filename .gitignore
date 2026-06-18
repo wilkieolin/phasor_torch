@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+.python-version
+
+# Generated parity fixtures (regenerable via julia_parity/generate_*.py).
+julia_parity/fixtures/
+
+# Julia
+julia_parity/Manifest.toml
+*.cov
+*.mem
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

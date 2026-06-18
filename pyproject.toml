@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phasor_torch"
+version = "0.0.1"
+description = "PyTorch port of PhasorNetworks.jl (training-only, LSA/LCA)"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.10",
+  "numpy",
+  "h5py",
+  "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["phasor_torch*"]
+
+[tool.pytest.ini_options]
+testpaths = ["phasor_torch/tests"]
+addopts = "-ra -q"
