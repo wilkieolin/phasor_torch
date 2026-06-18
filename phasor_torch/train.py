@@ -23,7 +23,20 @@ from .data import (
     first_token_classification,
     make_dataloader,
 )
-from .layers import Codebook, PhasorDense, PhasorLCA, PhasorLSA, SSMReadout
+import math
+
+from .layers import (
+    Codebook,
+    PhasorDense,
+    PhasorLCA,
+    PhasorLSA,
+    ResonantSTFT,
+    SSMReadout,
+    downsample_time,
+    encode_input,
+    resolve_activation,
+    to_phase,
+)
 from .layers.phasor_dense import SpikingArgs
 from .losses import accuracy, codebook_loss, one_hot, similarity_loss
 from .primitives import normalize_to_unit_circle
@@ -54,10 +67,31 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
     saved HDF5 layout maps cleanly to a corresponding Lux chain in Julia.
     """
     spk = SpikingArgs(t_period=cfg.t_period)
+
+    # Audio frontend (ResonantSTFT) and the RNN_KW recurrence preset for the
+    # surrounding PhasorDense layers. In audio mode the input embedding consumes
+    # the n_freqs frequency channels instead of cfg.in_dims.
+    frontend: Optional[nn.Module] = None
+    embed_in = cfg.in_dims
+    eff_lnl = cfg.init_log_neg_lambda
+    if cfg.frontend == "resonant":
+        frontend = ResonantSTFT(
+            1, cfg.n_freqs, resolve_activation(cfg.resonant_activation),
+            omega_lo=cfg.omega_lo, omega_hi=cfg.omega_hi,
+            init_log_neg_lambda=cfg.resonant_init_log_neg_lambda,
+            init_r_lo=cfg.init_r_lo, init_r_hi=cfg.init_r_hi,
+            spk_args=spk, generator=generator,
+        )
+        embed_in = cfg.n_freqs
+        if eff_lnl is None:
+            eff_lnl = math.log(0.1)        # RNN_KW preset for the body PhasorDense layers
+    elif cfg.frontend != "none":
+        raise ValueError(f"unknown frontend kind {cfg.frontend!r}")
+
     input_layer = PhasorDense(
-        cfg.in_dims, cfg.d_hidden, normalize_to_unit_circle,
-        use_bias=False, init_mode=cfg.init_mode, spk_args=spk,
-        generator=generator,
+        embed_in, cfg.d_hidden, normalize_to_unit_circle,
+        use_bias=False, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
+        spk_args=spk, generator=generator,
     )
     body: Optional[nn.Module]
     if cfg.body == "none":
@@ -79,8 +113,8 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
 
     body_dense = PhasorDense(
         cfg.d_hidden, cfg.d_hidden, activation=nn.Identity(),
-        use_bias=False, init_mode=cfg.init_mode, spk_args=spk,
-        generator=generator,
+        use_bias=False, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
+        spk_args=spk, generator=generator,
     )
 
     if cfg.readout == "ssm":
@@ -99,6 +133,8 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
     # Build the ordered schema (used both as the forward chain and as
     # the HDF5-save mapping).
     schema: OrderedDict[str, nn.Module] = OrderedDict()
+    if frontend is not None:
+        schema["frontend"] = frontend
     schema["input"] = input_layer
     if body is not None:
         schema["body"] = body
@@ -129,10 +165,22 @@ def _maybe_collapse_for_codebook(x: Tensor, readout: nn.Module) -> Tensor:
     return x
 
 
-def forward_model(schema: OrderedDict[str, nn.Module], x: Tensor) -> Tensor:
-    """Custom forward that adapts the readout's input rank when needed."""
+def forward_model(schema: OrderedDict[str, nn.Module], x: Tensor,
+                  downsample_factor: int = 1) -> Tensor:
+    """Custom forward that wires the audio frontend glue and the readout adapter.
+
+    The "frontend" (ResonantSTFT) layer is wrapped with the stateless transforms
+    that are not nn.Modules: `encode_input` lifts the real waveform to complex
+    before it, and `downsample_time` -> `to_phase` follow it so the
+    phase-dispatching body can consume the result.
+    """
     out = x
     for name, layer in schema.items():
+        if name == "frontend":
+            out = encode_input(out)
+            out = layer(out)
+            out = to_phase(downsample_time(out, downsample_factor))
+            continue
         if name == "readout":
             out = _maybe_collapse_for_codebook(out, layer)
         out = layer(out)
@@ -146,7 +194,7 @@ def forward_model(schema: OrderedDict[str, nn.Module], x: Tensor) -> Tensor:
 
 @torch.no_grad()
 def evaluate(schema: OrderedDict[str, nn.Module], loader, device: torch.device,
-             n_classes: int) -> tuple[float, float]:
+             n_classes: int, downsample_factor: int = 1) -> tuple[float, float]:
     """Return (mean_loss, accuracy) over a loader."""
     total_loss = 0.0
     total_correct = 0
@@ -155,7 +203,7 @@ def evaluate(schema: OrderedDict[str, nn.Module], loader, device: torch.device,
     for x, y in loader:
         x = x.to(device)
         y = y.to(device)
-        sims = forward_model(schema, x)
+        sims = forward_model(schema, x, downsample_factor)
         oh = one_hot(y, n_classes)
         loss = similarity_loss(sims, oh)
         preds = sims.argmax(dim=0)
@@ -178,26 +226,43 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
     g = torch.Generator(device="cpu").manual_seed(run.train.seed)
 
     # --- Data ---------------------------------------------------------
-    codebook_g = torch.Generator().manual_seed(run.data.seed)
-    codebook = build_codebook(run.data.vocab_size, run.model.in_dims,
-                              generator=codebook_g)
-    train_cfg = SequenceTaskConfig(
-        task=run.data.task, num_samples=run.data.num_train,
-        max_length=run.data.max_length, vocab_size=run.data.vocab_size,
-        n_hd=run.model.in_dims, seed=run.data.seed,
-    )
-    test_cfg = SequenceTaskConfig(
-        task=run.data.task, num_samples=run.data.num_test,
-        max_length=run.data.max_length, vocab_size=run.data.vocab_size,
-        n_hd=run.model.in_dims, seed=run.data.seed + 9999,
-    )
-    x_tr, y_tr = first_token_classification(train_cfg, codebook)
-    x_te, y_te = first_token_classification(test_cfg,  codebook)
+    if run.data.source == "audio":
+        if run.model.frontend != "resonant":
+            raise ValueError(
+                "data.source == 'audio' requires model.frontend == 'resonant'"
+            )
+        if not run.data.train_path or not run.data.test_path:
+            raise ValueError(
+                "data.source == 'audio' requires data.train_path and data.test_path"
+            )
+        from .data import make_audio_dataloaders
+        train_loader, test_loader = make_audio_dataloaders(
+            run.data.train_path, run.data.test_path, run.model.n_classes,
+            run.train.batch_size,
+            train_limit=run.data.train_limit, test_limit=run.data.test_limit,
+            seed=run.data.seed, generator=g,
+        )
+    else:
+        codebook_g = torch.Generator().manual_seed(run.data.seed)
+        codebook = build_codebook(run.data.vocab_size, run.model.in_dims,
+                                  generator=codebook_g)
+        train_cfg = SequenceTaskConfig(
+            task=run.data.task, num_samples=run.data.num_train,
+            max_length=run.data.max_length, vocab_size=run.data.vocab_size,
+            n_hd=run.model.in_dims, seed=run.data.seed,
+        )
+        test_cfg = SequenceTaskConfig(
+            task=run.data.task, num_samples=run.data.num_test,
+            max_length=run.data.max_length, vocab_size=run.data.vocab_size,
+            n_hd=run.model.in_dims, seed=run.data.seed + 9999,
+        )
+        x_tr, y_tr = first_token_classification(train_cfg, codebook)
+        x_te, y_te = first_token_classification(test_cfg,  codebook)
 
-    train_loader = make_dataloader(x_tr, y_tr, run.train.batch_size,
-                                   shuffle=True, generator=g)
-    test_loader = make_dataloader(x_te, y_te, run.train.batch_size,
-                                  shuffle=False, drop_last=False)
+        train_loader = make_dataloader(x_tr, y_tr, run.train.batch_size,
+                                       shuffle=True, generator=g)
+        test_loader = make_dataloader(x_te, y_te, run.train.batch_size,
+                                      shuffle=False, drop_last=False)
 
     # --- Model --------------------------------------------------------
     model, schema = build_model(run.model, generator=g)
@@ -205,6 +270,8 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
 
     opt = torch.optim.Adam(model.parameters(), lr=run.train.lr,
                            weight_decay=run.train.weight_decay)
+
+    ds = run.model.downsample_factor if run.model.frontend == "resonant" else 1
 
     history: list[dict] = []
     for epoch in range(1, run.train.epochs + 1):
@@ -217,7 +284,7 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
             x = x.to(device)
             y = y.to(device)
             opt.zero_grad(set_to_none=True)
-            sims = forward_model(schema, x)
+            sims = forward_model(schema, x, ds)
             oh = one_hot(y, run.model.n_classes)
             loss = similarity_loss(sims, oh)
             loss.backward()
@@ -234,7 +301,7 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
 
         model.eval()
         test_loss, test_acc = evaluate(schema, test_loader, device,
-                                       run.model.n_classes)
+                                       run.model.n_classes, ds)
         row = {
             "epoch": epoch,
             "train_loss": train_loss, "train_acc": train_acc,

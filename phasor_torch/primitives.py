@@ -184,6 +184,71 @@ def normalize_to_unit_circle(z: Tensor, eps: float = 1e-8,
     return _normalize_safe(z, eps)
 
 
+def soft_normalize_to_unit_circle(z: Tensor, r_lo, r_hi) -> Tensor:
+    """Soft SLERP normalization onto the unit circle with per-channel gating.
+
+    Smoothly maps complex `z` onto the unit circle by interpolating the phase
+    from 0 toward `angle(z)` with a magnitude-gated blend factor, collapsing
+    sub-threshold values to `1 + 0i`. SLERP on the phase (rather than linear
+    complex mixing toward 1+0i) avoids cancellation when z points opposite the
+    reference.
+
+        r        = |z|
+        mid      = (r_lo + r_hi) / 2
+        k        = 6 / (r_hi - r_lo)
+        blend    = sigmoid(k * (r - mid))           in [0, 1]
+        theta    = atan2(imag(z/safe_r), real(z/safe_r))   with safe_r = max(r, 1e-10)
+        y        = cos(blend * theta) + i * sin(blend * theta)
+
+    `r_lo` / `r_hi` may be Python floats (a global gate) or real tensors that
+    broadcast against `|z|` — the ResonantSTFT layer passes per-channel
+    `(n_freqs, 1, 1)` tensors so each frequency has its own gate.
+
+    Plain autograd (no custom Function): the `max(r, 1e-10)` guard keeps the
+    forward finite at z = 0; see the backward-finiteness test in
+    tests/test_primitives_resonant.py for the z = 0 case.
+
+    Mirrors Julia src/activations.jl:208 (trainable-threshold positional form).
+    """
+    r = z.abs()                                              # real, shape of z
+    safe_r = torch.clamp(r, min=1e-10)
+    mid = (r_lo + r_hi) / 2.0
+    k = 6.0 / (r_hi - r_lo)
+    blend = torch.sigmoid(k * (r - mid))                     # real
+    unit = z / safe_r.to(z.dtype)                            # complex on unit circle
+    theta = torch.atan2(unit.imag, unit.real)               # real, [-pi, pi]
+    ang = blend * theta
+    return torch.complex(torch.cos(ang), torch.sin(ang))
+
+
+def freq_shift(Z: Tensor, omega: Tensor, omega_out: float, dt: float) -> Tensor:
+    """Re-encode a per-channel-omega signal onto a shared downstream carrier.
+
+    Multiplies each channel by `exp(i * (omega_out - omega_c) * dt * n)` over
+    the time axis n = 0..L-1, shifting channel c from its own carrier `omega_c`
+    to the uniform `omega_out`. This is what lets ResonantSTFT carry a trainable
+    per-channel omega while keeping downstream layers phase-locked.
+
+    Args:
+      Z:         (n_freqs, L, B) complex.
+      omega:     (n_freqs,) real, per-channel angular frequency.
+      omega_out: scalar shared downstream angular frequency (2*pi/t_period).
+      dt:        scalar sample step.
+
+    Returns:
+      (n_freqs, L, B) complex.
+
+    NOTE the sign: the exponent is +i*delta_omega*dt*n (mirrors Julia
+    src/network.jl:868 `_freq_shift`, which uses +1.0f0im).
+    """
+    n_freqs, L, _ = Z.shape
+    d_omega = float(omega_out) - omega                       # (n_freqs,)
+    ns = torch.arange(L, dtype=torch.float32, device=Z.device)  # (L,)
+    phase = d_omega.unsqueeze(1) * float(dt) * ns.unsqueeze(0)  # (n_freqs, L) real
+    shift = torch.exp(torch.complex(torch.zeros_like(phase), phase))  # (n_freqs, L)
+    return Z * shift.unsqueeze(-1)                            # (n_freqs, L, B)
+
+
 # --------------------------------------------------------------------------
 # Pairwise interference similarity (memory-efficient closed-form rrule)
 # --------------------------------------------------------------------------
