@@ -223,6 +223,7 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
     weights are written to that path in the HDF5 schema that Lux can load.
     """
     device = select_device(run.train.device)
+    print(f"device: {device}")
     g = torch.Generator(device="cpu").manual_seed(run.train.seed)
 
     # --- Data ---------------------------------------------------------

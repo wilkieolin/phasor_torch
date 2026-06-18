@@ -1,0 +1,31 @@
+# Aurora (Intel PVC / xpu) quick confirmation, PhasorLSA body.
+# Same knobs as audio_lsa_small.yaml (local CUDA baseline ~0.94 -> ~0.875 over
+# 3 epochs) but pointed at the staged data and force-pinned to xpu.
+model:
+  frontend: resonant
+  n_freqs: 64
+  downsample_factor: 32
+  omega_lo: 0.2
+  omega_hi: 2.5
+  resonant_activation: slerp
+  d_hidden: 64
+  body: lsa
+  n_heads: 4
+  init_scale: 3.0
+  readout: ssm
+  readout_frac: 0.25
+  n_classes: 30
+  t_period: 1.0
+data:
+  source: audio
+  train_path: /flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw.h5
+  test_path: /flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw_test.h5
+  sample_rate: 16000
+  train_limit: 512
+  test_limit: 256
+train:
+  batch_size: 8
+  epochs: 3
+  lr: 3.0e-4
+  seed: 0
+  device: xpu        # force-pin: fail loud if xpu is unavailable
