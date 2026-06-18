@@ -14,6 +14,12 @@ julia_parity/Manifest.toml
 *.cov
 *.mem
 
+# HPO outputs (ytopt search trajectory + per-trial artifacts/checkpoints)
+results.csv
+results.json
+ytopt.log
+hpo_runs/
+
 # Editor / OS
 .DS_Store
 .idea/
