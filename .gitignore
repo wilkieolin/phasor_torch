@@ -19,6 +19,11 @@ results.csv
 results.json
 ytopt.log
 hpo_runs/
+# libEnsemble run artifacts
+ensemble.log
+libE_stats.txt
+ensemble_*/
+*.npy
 
 # Editor / OS
 .DS_Store

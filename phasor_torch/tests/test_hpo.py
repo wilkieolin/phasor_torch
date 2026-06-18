@@ -128,8 +128,31 @@ def test_make_space_lca_has_anchors():
 
 def test_make_space_lsa_no_anchors():
     pytest.importorskip("ConfigSpace")
-    base = hpo.HpoBase(body="lsa", epochs_min=1, epochs_max=1)   # Constant epochs
+    base = hpo.HpoBase(body="lsa", epochs_min=1, epochs_max=1)   # epochs fixed -> omitted
     cs = hpo.make_space(base)
     names = set(cs.keys()) if hasattr(cs, "keys") \
         else set(cs.get_hyperparameter_names())
     assert "n_anchors" not in names
+    assert "epochs" not in names   # fixed bounds -> not a swept dimension
+
+
+# --- libEnsemble launcher helpers ------------------------------------------
+
+
+def test_libe_parse_user_args():
+    from phasor_torch import hpo_libe
+    args = hpo_libe._parse_user_args(["--learner", "RF", "--max-evals=10", "--comms", "local"])
+    assert args["learner"] == "RF"
+    assert args["max-evals"] == "10"
+    assert args["comms"] == "local"
+
+
+def test_libe_field_specs_types():
+    pytest.importorskip("ConfigSpace")
+    from phasor_torch import hpo_libe
+    cs = hpo.make_space(hpo.HpoBase(body="lca", epochs_min=30, epochs_max=80))
+    fields = dict(hpo_libe._field_specs(cs))
+    assert fields["lr"] is float
+    assert fields["d_hidden"] is int          # int-choice categorical -> int
+    assert fields["n_anchors"] is int
+    assert fields["epochs"] is int

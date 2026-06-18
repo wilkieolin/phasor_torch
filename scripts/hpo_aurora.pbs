@@ -1,0 +1,48 @@
+#!/bin/bash -l
+# Multi-node libEnsemble HPO sweep on Aurora (one trial per XPU tile).
+# Edit the PBS directives (-A account, -q queue, -l select=<nodes>) then:
+#   qsub scripts/hpo_aurora.pbs
+#
+#PBS -A EE-ECP
+#PBS -q prod
+#PBS -l select=2
+#PBS -l walltime=02:00:00
+#PBS -l filesystems=home:flare
+#PBS -N phasor_hpo
+#PBS -j oe
+set -euo pipefail
+
+module load frameworks
+# The dedicated env built by scripts/setup_hpo_env.sh (venv on the module, or a
+# cloned conda env). Adjust the path to your env.
+source /flare/EE-ECP/wolin/envs/phasor_hpo/bin/activate
+
+REPO=/flare/EE-ECP/wolin/phasor_torch
+cd "$REPO"
+export PYTHONPATH="$REPO"
+export PYTHONUNBUFFERED=1
+
+# ---- study configuration (PHASOR_HPO_* are read by the Problem) ----
+export PHASOR_HPO_BODY=lca                 # one study per body: lca | lsa
+export PHASOR_HPO_SOURCE=audio
+export PHASOR_HPO_TRAIN_PATH=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw.h5
+export PHASOR_HPO_TEST_PATH=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw_test.h5
+export PHASOR_HPO_EPOCHS_MIN=30
+export PHASOR_HPO_EPOCHS_MAX=80
+export PHASOR_HPO_DEVICE=xpu
+export PHASOR_HPO_OUTDIR=/flare/EE-ECP/wolin/hpo_runs/${PHASOR_HPO_BODY}
+export PHASOR_HPO_ENSEMBLE_DIR=${PHASOR_HPO_OUTDIR}/ensemble
+mkdir -p "$PHASOR_HPO_OUTDIR"
+
+MAX_EVALS=200
+TILES_PER_NODE=12                          # 6 PVC GPUs x 2 tiles
+NODES=$(sort -u "$PBS_NODEFILE" | wc -l)
+# 1 rank per tile per node. libE uses rank 0 as manager and one worker as the
+# persistent generator, so concurrent trials = NODES*TILES_PER_NODE - 2.
+RANKS=$(( NODES * TILES_PER_NODE ))
+
+echo "nodes=$NODES ranks=$RANKS concurrent_trials=$(( RANKS - 2 )) max_evals=$MAX_EVALS body=$PHASOR_HPO_BODY"
+
+mpiexec -np "$RANKS" -ppn "$TILES_PER_NODE" \
+    scripts/set_affinity_xpu_aurora.sh \
+    python -m phasor_torch.hpo_libe --learner RF --max-evals "$MAX_EVALS"
