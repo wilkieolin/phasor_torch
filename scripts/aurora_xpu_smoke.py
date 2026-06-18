@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     x_grad_finite = bool(x.grad is not None and torch.isfinite(x.grad).all())
     bad_params = [n for n, pp in frontend.named_parameters()
                   if pp.grad is None or not torch.isfinite(pp.grad).all()]
-    print(f"loss: {float(loss):.6f}  input-grad finite: {x_grad_finite}")
+    print(f"loss: {float(loss.detach()):.6f}  input-grad finite: {x_grad_finite}")
     print(f"frontend params with missing/non-finite grad: {bad_params}")
 
     ok = fwd_finite and bool(torch.isfinite(phase).all()) and x_grad_finite and not bad_params
