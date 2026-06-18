@@ -1,0 +1,31 @@
+# Keyword-spotting audio, PhasorLSA body. Small/local-smoke sizing
+# (batch=8, subset of clips, few epochs). For the real Aurora sweep, drop the
+# *_limit caps and raise epochs to >=50 (project memory: LSA ~47% test at
+# >=50 epochs).
+model:
+  frontend: resonant
+  n_freqs: 64
+  downsample_factor: 32
+  omega_lo: 0.2
+  omega_hi: 2.5
+  resonant_activation: slerp
+  d_hidden: 64
+  body: lsa
+  n_heads: 4
+  init_scale: 3.0
+  readout: ssm
+  readout_frac: 0.25
+  n_classes: 30
+  t_period: 1.0
+data:
+  source: audio
+  train_path: /home/wilkie/data/sound/sound_data_raw.h5
+  test_path: /home/wilkie/data/sound/sound_data_raw_test.h5
+  sample_rate: 16000
+  train_limit: 512
+  test_limit: 256
+train:
+  batch_size: 8
+  epochs: 3
+  lr: 3.0e-4
+  seed: 0

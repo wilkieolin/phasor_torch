@@ -7,6 +7,7 @@ last giving a pure PhasorDense chain — useful as a baseline).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
@@ -21,9 +22,24 @@ class ModelConfig:
     """Topology of the trainable network."""
 
     # Input embedding: a PhasorDense from C_in to d_hidden.
-    in_dims: int = 64           # C_in (= codebook n_hd)
+    in_dims: int = 64           # C_in (= codebook n_hd); ignored in audio mode
     d_hidden: int = 64
     init_mode: Literal["default", "hippo"] = "hippo"
+    # Body PhasorDense recurrence preset. None keeps init_mode's default lambda;
+    # the audio archs use RNN_KW = log(0.1) (per-neuron trainable decay). When
+    # frontend == "resonant" and this is None, build_model applies RNN_KW.
+    init_log_neg_lambda: Optional[float] = None
+
+    # Audio frontend: 'none' (synthetic Phase input) | 'resonant' (ResonantSTFT).
+    frontend: Literal["none", "resonant"] = "none"
+    n_freqs: int = 64
+    omega_lo: float = 0.2
+    omega_hi: float = 2.5
+    downsample_factor: int = 32
+    resonant_init_log_neg_lambda: float = math.log(0.1)
+    init_r_lo: float = 0.1
+    init_r_hi: float = 0.6
+    resonant_activation: Literal["slerp", "identity", "normalize"] = "slerp"
 
     # Body: 'none' | 'lsa' | 'lca'.
     body: Literal["none", "lsa", "lca"] = "lsa"
@@ -43,14 +59,25 @@ class ModelConfig:
 
 @dataclass(frozen=True)
 class DataConfig:
-    """Synthetic sequence dataset config."""
+    """Dataset config — synthetic sequence tasks or raw keyword-spotting audio."""
 
+    source: Literal["synthetic", "audio"] = "synthetic"
+
+    # --- synthetic-sequence knobs (source == "synthetic") ---------------
     task: Literal["copy", "reversal", "retrieval", "sorting"] = "copy"
     vocab_size: int = 10                  # equals model.n_classes for first-token-recall
     max_length: int = 32
     num_train: int = 1024
     num_test: int = 256
     seed: int = 0
+
+    # --- audio knobs (source == "audio") -------------------------------
+    train_path: Optional[str] = None
+    test_path: Optional[str] = None
+    sample_rate: int = 16000
+    # Optional caps on clip count for local smoke runs (None = use all clips).
+    train_limit: Optional[int] = None
+    test_limit: Optional[int] = None
 
 
 @dataclass(frozen=True)
