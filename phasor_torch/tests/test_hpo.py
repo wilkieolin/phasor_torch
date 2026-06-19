@@ -60,6 +60,16 @@ def test_point_to_runconfig_lsa_omits_anchors():
     assert run.data.source == "audio"
 
 
+def test_point_to_runconfig_cosine_passthrough():
+    base = hpo.HpoBase(body="lsa", source="synthetic", cosine_schedule=True, lr_min=3e-5)
+    run = hpo.point_to_runconfig(_full_point("lsa"), base)
+    assert run.train.cosine_schedule is True
+    assert run.train.lr_min == 3e-5
+    # default base leaves cosine off
+    run0 = hpo.point_to_runconfig(_full_point("lsa"), hpo.HpoBase(body="lsa", source="synthetic"))
+    assert run0.train.cosine_schedule is False
+
+
 def test_point_to_runconfig_coerces_numpy_scalars():
     np = pytest.importorskip("numpy")
     base = hpo.HpoBase(body="lsa", source="synthetic", n_classes=10)
@@ -139,6 +149,18 @@ def test_make_space_lsa_no_anchors():
     assert "epochs" not in names   # fixed bounds -> not a swept dimension
 
 
+def test_n_anchors_includes_256():
+    assert hpo.DISCRETE_CHOICES["n_anchors"] == (32, 64, 128, 256)
+    assert hpo._resolve_discrete({"n_anchors_i": 3}, "n_anchors") == 256
+
+
+def test_widened_search_bounds():
+    pytest.importorskip("ConfigSpace")
+    cs = hpo.make_space(hpo.HpoBase(body="lca", epochs_min=30, epochs_max=80))
+    assert cs["readout_frac"].upper == 1.0    # raised from 0.5
+    assert cs["n_anchors_i"].upper == 3       # 4 choices -> index 0..3
+
+
 # --- early stopping --------------------------------------------------------
 
 
@@ -167,6 +189,35 @@ def test_early_stop_min_delta():
     losses = [1.0, 0.9, 0.80, 0.799, 0.798, 0.797]
     assert _early_stop(losses, patience=3, min_delta=0.01) is True
     assert _early_stop(losses, patience=3, min_delta=0.0) is False
+
+
+# --- cosine LR schedule ----------------------------------------------------
+
+
+def test_lr_scheduler_off_by_default():
+    import torch
+    from phasor_torch.config import TrainConfig
+    from phasor_torch.train import _build_lr_scheduler
+    opt = torch.optim.Adam([torch.nn.Parameter(torch.zeros(1))], lr=1e-3)
+    assert _build_lr_scheduler(opt, TrainConfig(cosine_schedule=False), 4) is None
+
+
+def test_lr_scheduler_cosine_anneals_to_lr_min():
+    import torch
+    from phasor_torch.config import TrainConfig
+    from phasor_torch.train import _build_lr_scheduler
+    p = torch.nn.Parameter(torch.zeros(1))
+    opt = torch.optim.Adam([p], lr=1e-3)
+    cfg = TrainConfig(epochs=5, cosine_schedule=True, lr_min=1e-5)
+    sched = _build_lr_scheduler(opt, cfg, steps_per_epoch=4)   # T_max = 20
+    lrs = [opt.param_groups[0]["lr"]]
+    for _ in range(20):
+        opt.step()
+        sched.step()
+        lrs.append(opt.param_groups[0]["lr"])
+    assert abs(lrs[0] - 1e-3) < 1e-9            # starts at peak lr
+    assert abs(lrs[-1] - 1e-5) < 1e-6           # ends at lr_min
+    assert lrs[-1] < lrs[len(lrs) // 2] < lrs[0]  # monotonically decreasing
 
 
 # --- libEnsemble launcher helpers ------------------------------------------

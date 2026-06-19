@@ -61,6 +61,8 @@ class HpoBase:
     epochs_max: int = 80
     patience: int = 6                 # early-stop a trial after N epochs w/o test_loss improvement
     min_delta: float = 0.0
+    cosine_schedule: bool = False     # cosine LR decay (lr -> lr_min) over each trial
+    lr_min: float = 1e-6
     seed: int = 0
     outdir: str = "hpo_runs"
     # synthetic-only fallbacks (used when source == 'synthetic', for fast tests)
@@ -98,6 +100,8 @@ class HpoBase:
             epochs_max=_i("PHASOR_HPO_EPOCHS_MAX", 80),
             patience=_i("PHASOR_HPO_PATIENCE", 6),
             min_delta=float(e("PHASOR_HPO_MIN_DELTA") or 0.0),
+            cosine_schedule=(e("PHASOR_HPO_COSINE", "").lower() in ("1", "true", "yes")),
+            lr_min=float(e("PHASOR_HPO_LR_MIN") or 1e-6),
             seed=_i("PHASOR_HPO_SEED", 0),
             outdir=e("PHASOR_HPO_OUTDIR", "hpo_runs"),
         )
@@ -116,7 +120,7 @@ class HpoBase:
 DISCRETE_CHOICES: dict[str, tuple[int, ...]] = {
     "d_hidden": (64, 128, 256),
     "n_heads": (2, 4, 8),
-    "n_anchors": (32, 64, 128),
+    "n_anchors": (32, 64, 128, 256),
 }
 DISCRETE_DEFAULT_IDX = {"d_hidden": 0, "n_heads": 1, "n_anchors": 0}  # 64, 4, 32
 
@@ -149,7 +153,7 @@ def make_space(base: HpoBase):
             Integer("n_heads_i", bounds=(0, _idx_hi("n_heads")),
                     default=DISCRETE_DEFAULT_IDX["n_heads"]),
             Float("init_scale", bounds=(1.0, 5.0), default=3.0),
-            Float("readout_frac", bounds=(0.1, 0.5), default=0.25),
+            Float("readout_frac", bounds=(0.1, 1.0), default=0.25),
             Float("weight_decay", bounds=(1e-8, 1e-3), log=True, default=1e-8),
         ]
         if sweep_epochs:
@@ -171,7 +175,7 @@ def make_space(base: HpoBase):
                                              default_value=DISCRETE_DEFAULT_IDX["n_heads"]),
             CSH.UniformFloatHyperparameter("init_scale", lower=1.0, upper=5.0,
                                            default_value=3.0),
-            CSH.UniformFloatHyperparameter("readout_frac", lower=0.1, upper=0.5,
+            CSH.UniformFloatHyperparameter("readout_frac", lower=0.1, upper=1.0,
                                            default_value=0.25),
             CSH.UniformFloatHyperparameter("weight_decay", lower=1e-8, upper=1e-3,
                                            log=True, default_value=1e-8),
@@ -243,6 +247,8 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
         "seed": int(base.seed),
         "patience": int(base.patience),
         "min_delta": float(base.min_delta),
+        "cosine_schedule": bool(base.cosine_schedule),
+        "lr_min": float(base.lr_min),
     }
 
     if base.source == "audio":

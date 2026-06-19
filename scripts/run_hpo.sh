@@ -34,6 +34,8 @@ LEARNER=RF
 SOURCE=audio
 PATIENCE=6
 NBLOCKS=1          # stacked (body -> dense) blocks; fixed per study
+COSINE=""          # --cosine to enable cosine LR decay to LRMIN over each trial
+LRMIN=1e-6
 TRAIN=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw.h5
 TEST=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw_test.h5
 OUTDIR=hpo_runs
@@ -49,6 +51,8 @@ while [[ $# -gt 0 ]]; do
     --epochs-max) EPOCHS_MAX="$2"; shift 2;;
     --patience) PATIENCE="$2"; shift 2;;
     --n-blocks) NBLOCKS="$2"; shift 2;;
+    --cosine) COSINE=1; shift 1;;
+    --lr-min) LRMIN="$2"; shift 2;;
     --source) SOURCE="$2"; shift 2;;
     --train-path) TRAIN="$2"; shift 2;;
     --test-path) TEST="$2"; shift 2;;
@@ -69,13 +73,15 @@ export PHASOR_HPO_EPOCHS_MIN="$EPOCHS_MIN"
 export PHASOR_HPO_EPOCHS_MAX="$EPOCHS_MAX"
 export PHASOR_HPO_PATIENCE="$PATIENCE"
 export PHASOR_HPO_N_BLOCKS="$NBLOCKS"
+export PHASOR_HPO_COSINE="$COSINE"
+export PHASOR_HPO_LR_MIN="$LRMIN"
 export PHASOR_HPO_DEVICE="$DEVICE"
 export PHASOR_HPO_OUTDIR="$OUTDIR/$BODY"
 [ -n "$TRAIN_LIMIT" ] && export PHASOR_HPO_TRAIN_LIMIT="$TRAIN_LIMIT"
 [ -n "$TEST_LIMIT" ] && export PHASOR_HPO_TEST_LIMIT="$TEST_LIMIT"
 
 mkdir -p "$PHASOR_HPO_OUTDIR"
-echo "study: body=$BODY source=$SOURCE evaluator=subprocess max_evals=$MAX_EVALS epochs=[$EPOCHS_MIN,$EPOCHS_MAX] patience=$PATIENCE device=$DEVICE"
+echo "study: body=$BODY source=$SOURCE evaluator=subprocess max_evals=$MAX_EVALS epochs=[$EPOCHS_MIN,$EPOCHS_MAX] patience=$PATIENCE cosine=${COSINE:-0}(lr_min=$LRMIN) device=$DEVICE"
 echo "artifacts: $PHASOR_HPO_OUTDIR   (ambs results.csv in $PWD)"
 
 python -m ytopt.search.ambs \
