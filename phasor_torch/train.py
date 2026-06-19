@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import asdict
+from pathlib import Path
 from typing import Optional
 
 import torch
@@ -40,6 +41,7 @@ from .layers import (
 from .layers.phasor_dense import SpikingArgs
 from .losses import accuracy, codebook_loss, one_hot, similarity_loss
 from .primitives import normalize_to_unit_circle
+from .weights import save_state
 
 
 # --------------------------------------------------------------------------
@@ -289,6 +291,13 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
 
     ds = run.model.downsample_factor if run.model.frontend == "resonant" else 1
 
+    # Checkpoint targets: final goes to save_path/checkpoint_path; best.h5 and
+    # periodic ckpt_epoch{N}.h5 go in that file's directory.
+    final_save = save_path or run.train.checkpoint_path
+    ckpt_dir = Path(final_save).parent if final_save else None
+    meta = {f"cfg.{k}": str(v) for k, v in asdict(run).items()}
+    best_acc = float("-inf")
+
     history: list[dict] = []
     for epoch in range(1, run.train.epochs + 1):
         model.train()
@@ -327,16 +336,20 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
         print(f"epoch {epoch}: train_loss={train_loss:.4f} train_acc={train_acc:.3f}"
               f" | test_loss={test_loss:.4f} test_acc={test_acc:.3f}")
 
+        if ckpt_dir is not None:
+            if run.train.save_best and test_acc > best_acc:
+                best_acc = test_acc
+                save_state(ckpt_dir / "best.h5", schema, metadata=meta)
+            if run.train.checkpoint_every > 0 and epoch % run.train.checkpoint_every == 0:
+                save_state(ckpt_dir / f"ckpt_epoch{epoch}.h5", schema, metadata=meta)
+
         if _early_stop([r["test_loss"] for r in history],
                        run.train.patience, run.train.min_delta):
             print(f"early stop at epoch {epoch}: test_loss no improvement in "
                   f"{run.train.patience} epochs")
             break
 
-    final_save = save_path or run.train.checkpoint_path
     if final_save is not None:
-        from .weights import save_state
-        meta = {f"cfg.{k}": str(v) for k, v in asdict(run).items()}
         save_state(final_save, schema, metadata=meta)
         print(f"saved checkpoint to {final_save}")
 

@@ -33,6 +33,7 @@ EPOCHS_MAX=80
 LEARNER=RF
 SOURCE=audio
 PATIENCE=6
+CKPT_EVERY=0       # periodic ckpt_epoch{N}.h5 per trial (0 = off); best.h5 is always on
 TRAIN=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw.h5
 TEST=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw_test.h5
 OUTDIR=hpo_runs
@@ -47,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --epochs-min) EPOCHS_MIN="$2"; shift 2;;
     --epochs-max) EPOCHS_MAX="$2"; shift 2;;
     --patience) PATIENCE="$2"; shift 2;;
+    --checkpoint-every) CKPT_EVERY="$2"; shift 2;;
     --source) SOURCE="$2"; shift 2;;
     --train-path) TRAIN="$2"; shift 2;;
     --test-path) TEST="$2"; shift 2;;
@@ -66,6 +68,7 @@ export PHASOR_HPO_TEST_PATH="$TEST"
 export PHASOR_HPO_EPOCHS_MIN="$EPOCHS_MIN"
 export PHASOR_HPO_EPOCHS_MAX="$EPOCHS_MAX"
 export PHASOR_HPO_PATIENCE="$PATIENCE"
+export PHASOR_HPO_CHECKPOINT_EVERY="$CKPT_EVERY"
 export PHASOR_HPO_DEVICE="$DEVICE"
 export PHASOR_HPO_OUTDIR="$OUTDIR/$BODY"
 [ -n "$TRAIN_LIMIT" ] && export PHASOR_HPO_TRAIN_LIMIT="$TRAIN_LIMIT"
