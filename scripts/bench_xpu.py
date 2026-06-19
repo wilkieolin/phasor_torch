@@ -163,21 +163,27 @@ def main(argv=None):
                   f"{sec_trial:>10.0f} {astr:>11} {rstr:>10} {pct:>5.0f}%")
             cells.append((d_hidden, batch, sec_trial))
 
-    # Node-hours estimate (uses the median measured sec/trial as a representative).
+    # Node-hours estimate. libE async scheduling keeps tiles busy (a tile pulls
+    # a new trial as soon as it frees), so total wall ~= total tile-hours /
+    # concurrent sim tiles -- not median x rounds. We assume the sweep's trials
+    # are spread across the measured grid, so use the grid MEAN per-trial cost
+    # (and show the min/max range, since d_hidden dominates the spread).
     if cells:
-        trials = sorted(c[2] for c in cells)
-        med = trials[len(trials) // 2]
-        concurrent = args.nodes * args.tiles_per_node - 2   # manager + generator
-        concurrent = max(1, concurrent)
-        rounds = math.ceil(args.n_trials / concurrent)
-        wall_h = rounds * med / 3600.0
+        secs = [c[2] for c in cells]
+        mean_t = sum(secs) / len(secs)
+        lo_t, hi_t = min(secs), max(secs)
+        concurrent = max(1, args.nodes * args.tiles_per_node - 2)  # minus manager + gen
+        tile_hours = args.n_trials * mean_t / 3600.0
+        wall_h = tile_hours / concurrent
         node_h = wall_h * args.nodes
         print(f"\nNode-hours estimate (epochs={args.epochs}, num_train={args.num_train}):")
-        print(f"  representative sec/trial (median of grid): {med:.0f}s ({med/3600:.2f}h)")
-        print(f"  {args.n_trials} trials / {concurrent} concurrent "
-              f"({args.nodes} nodes x {args.tiles_per_node} tiles - 2) = {rounds} rounds")
-        print(f"  wall ~= {wall_h:.1f}h   node-hours ~= {node_h:.0f}")
-        print("  (scale sec/trial to your real epoch count; estimate ignores stragglers)")
+        print(f"  per-trial: mean {mean_t/3600:.2f}h  (range {lo_t/3600:.2f}-{hi_t/3600:.2f}h "
+              f"across the grid; d_hidden dominates)")
+        print(f"  {args.n_trials} trials -> {tile_hours:.0f} tile-hours")
+        print(f"  on {args.nodes} nodes x {args.tiles_per_node} tiles ({concurrent} sim tiles, "
+              f"async): wall ~= {wall_h:.1f}h, node-hours ~= {node_h:.0f}")
+        print("  (assumes trials spread across the measured grid; excludes per-trial "
+              "data-load overhead and warmup)")
 
 
 if __name__ == "__main__":
