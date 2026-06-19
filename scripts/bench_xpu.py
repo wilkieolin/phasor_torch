@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import sys
 import time
 
 import torch
@@ -123,6 +124,15 @@ def main(argv=None):
     args = p.parse_args(argv)
 
     device = select_device(args.device)
+    mm0 = _mem_mod(device)
+    if mm0 is not None:
+        ndev = mm0.device_count()
+        print(f"{device.type} device count: {ndev}")
+        if ndev == 0:
+            print(f"ERROR: no {device.type} devices visible. If ZE_AFFINITY_MASK is set, "
+                  "unset it — under the frameworks module's ONEAPI_DEVICE_SELECTOR it can "
+                  "hide all XPU devices from a non-mpiexec process.", file=sys.stderr)
+            return 1
     print(f"device: {device}  body: {args.body}  L: {args.L}  n_freqs: {args.n_freqs} "
           f"downsample: {args.downsample}\n")
 
@@ -171,4 +181,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

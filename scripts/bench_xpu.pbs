@@ -23,8 +23,10 @@ cd "$REPO"
 export PYTHONPATH="$REPO"
 export PYTHONUNBUFFERED=1
 
-# Pin one tile so the memory figures are per-tile (a PVC tile is ~64 GB HBM).
-export ZE_AFFINITY_MASK="${ZE_AFFINITY_MASK:-0.0}"
+# NOTE: do NOT force ZE_AFFINITY_MASK here. With the frameworks module's
+# ONEAPI_DEVICE_SELECTOR, setting a "gpu.tile" mask on a plain (non-mpiexec)
+# process makes torch report zero XPU devices. The bench runs on xpu:0 (one
+# tile) regardless, so the peak-memory figures are already per-tile.
 
 # Knobs (override with `qsub -v ...`).
 BODY="${BODY:-lca}"
