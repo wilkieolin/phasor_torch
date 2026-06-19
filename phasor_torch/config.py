@@ -94,7 +94,7 @@ class TrainConfig:
     log_every: int = 0                    # 0 disables intra-epoch logging
     device: str = "auto"                  # 'auto' | 'cpu' | 'cuda' | 'xpu'
     seed: int = 0
-    checkpoint_path: Optional[str] = None  # HDF5 path; saved per epoch if set
+    checkpoint_path: Optional[str] = None  # HDF5 path for the FINAL weights (written once at end)
     # Early stopping: stop if test_loss hasn't improved (decreased by > min_delta)
     # over the last `patience` epochs. 0 disables (the trainer runs all epochs).
     patience: int = 0
@@ -103,6 +103,13 @@ class TrainConfig:
     # (per optimizer step). Mirrors Julia Args.cosine_schedule / lr_min.
     cosine_schedule: bool = False
     lr_min: float = 1e-6
+    # Checkpointing (only active when a save target / checkpoint dir exists):
+    #   save_best       -> write best.h5 whenever test_acc improves (matches the
+    #                      HPO objective's reported best, unlike the final weights).
+    #   checkpoint_every -> write ckpt_epoch{N}.h5 every N epochs (0 = off) for
+    #                      weight-trajectory analysis / restart points.
+    save_best: bool = False
+    checkpoint_every: int = 0
 
 
 @dataclass(frozen=True)
