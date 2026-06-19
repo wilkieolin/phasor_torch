@@ -192,6 +192,21 @@ def forward_model(schema: OrderedDict[str, nn.Module], x: Tensor,
 # --------------------------------------------------------------------------
 
 
+def _build_lr_scheduler(opt: torch.optim.Optimizer, cfg: TrainConfig,
+                        steps_per_epoch: int):
+    """Cosine LR scheduler annealing `lr` -> `lr_min` over the whole run, or None.
+
+    Stepped once per optimizer step (T_max = epochs * steps_per_epoch), matching
+    Julia's per-step `lr_min + (lr - lr_min) * 0.5*(1 + cos(pi * step/total))`
+    (PhasorNetworks.jl src/network.jl:1955).
+    """
+    if not cfg.cosine_schedule:
+        return None
+    total = max(1, int(cfg.epochs) * max(1, int(steps_per_epoch)))
+    return torch.optim.lr_scheduler.CosineAnnealingLR(
+        opt, T_max=total, eta_min=float(cfg.lr_min))
+
+
 def _early_stop(test_losses: list[float], patience: int, min_delta: float) -> bool:
     """True if test_loss hasn't improved over the last `patience` epochs.
 
@@ -286,6 +301,7 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
 
     opt = torch.optim.Adam(model.parameters(), lr=run.train.lr,
                            weight_decay=run.train.weight_decay)
+    scheduler = _build_lr_scheduler(opt, run.train, len(train_loader))
 
     ds = run.model.downsample_factor if run.model.frontend == "resonant" else 1
 
@@ -305,6 +321,8 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
             loss = similarity_loss(sims, oh)
             loss.backward()
             opt.step()
+            if scheduler is not None:
+                scheduler.step()
             preds = sims.argmax(dim=0)
             epoch_loss += float(loss.item())
             epoch_correct += int((preds == y).sum().item())

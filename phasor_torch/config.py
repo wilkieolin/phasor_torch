@@ -96,6 +96,10 @@ class TrainConfig:
     # over the last `patience` epochs. 0 disables (the trainer runs all epochs).
     patience: int = 0
     min_delta: float = 0.0
+    # Cosine LR decay over the whole run, annealing from `lr` to `lr_min`
+    # (per optimizer step). Mirrors Julia Args.cosine_schedule / lr_min.
+    cosine_schedule: bool = False
+    lr_min: float = 1e-6
 
 
 @dataclass(frozen=True)
