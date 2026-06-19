@@ -93,29 +93,41 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
         use_bias=False, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
         spk_args=spk, generator=generator,
     )
-    body: Optional[nn.Module]
-    if cfg.body == "none":
-        body = None
-    elif cfg.body == "lsa":
-        body = PhasorLSA(
-            cfg.d_hidden, cfg.d_hidden, n_heads=cfg.n_heads,
-            init_scale=cfg.init_scale, init_mode=cfg.init_mode,
-            spk_args=spk, generator=generator,
-        )
-    elif cfg.body == "lca":
-        body = PhasorLCA(
-            cfg.d_hidden, cfg.d_hidden, n_heads=cfg.n_heads,
-            n_anchors=cfg.n_anchors, init_scale=cfg.init_scale,
-            init_mode=cfg.init_mode, spk_args=spk, generator=generator,
-        )
-    else:
+    def _make_body() -> Optional[nn.Module]:
+        if cfg.body == "none":
+            return None
+        if cfg.body == "lsa":
+            return PhasorLSA(
+                cfg.d_hidden, cfg.d_hidden, n_heads=cfg.n_heads,
+                init_scale=cfg.init_scale, init_mode=cfg.init_mode,
+                spk_args=spk, generator=generator,
+            )
+        if cfg.body == "lca":
+            return PhasorLCA(
+                cfg.d_hidden, cfg.d_hidden, n_heads=cfg.n_heads,
+                n_anchors=cfg.n_anchors, init_scale=cfg.init_scale,
+                init_mode=cfg.init_mode, spk_args=spk, generator=generator,
+            )
         raise ValueError(f"unknown body kind {cfg.body!r}")
 
-    body_dense = PhasorDense(
-        cfg.d_hidden, cfg.d_hidden, activation=nn.Identity(),
-        use_bias=False, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
-        spk_args=spk, generator=generator,
-    )
+    # Stacked (body -> dense) blocks. n_blocks == 1 keeps the original keys
+    # ("body"/"dense") so existing checkpoints/parity/tests are unchanged;
+    # n_blocks > 1 uses indexed keys ("body0"/"dense0"/"body1"/...). The
+    # generator draw order (per block: attn then dense) matches the old single-
+    # block code, so n_blocks == 1 is bit-identical to before.
+    n_blocks = max(1, int(cfg.n_blocks))
+    blocks: list[tuple[str, nn.Module]] = []
+    for i in range(n_blocks):
+        suffix = "" if n_blocks == 1 else str(i)
+        attn = _make_body()
+        dense = PhasorDense(
+            cfg.d_hidden, cfg.d_hidden, activation=nn.Identity(),
+            use_bias=False, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
+            spk_args=spk, generator=generator,
+        )
+        if attn is not None:
+            blocks.append((f"body{suffix}", attn))
+        blocks.append((f"dense{suffix}", dense))
 
     if cfg.readout == "ssm":
         readout = SSMReadout(
@@ -136,9 +148,8 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
     if frontend is not None:
         schema["frontend"] = frontend
     schema["input"] = input_layer
-    if body is not None:
-        schema["body"] = body
-    schema["dense"] = body_dense
+    for name, mod in blocks:
+        schema[name] = mod
     schema["readout"] = readout
 
     model = nn.Sequential(*schema.values())

@@ -46,6 +46,9 @@ class ModelConfig:
     n_heads: int = 4
     n_anchors: int = 32         # only used when body == 'lca'
     init_scale: float = 3.0
+    # Number of stacked (body -> dense) blocks between the input embedding and
+    # readout. 1 = the canonical single-block chain (unchanged behavior).
+    n_blocks: int = 1
 
     # Readout: 'codebook' | 'ssm'.
     readout: Literal["codebook", "ssm"] = "ssm"
