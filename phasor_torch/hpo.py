@@ -46,6 +46,7 @@ class HpoBase:
     """
 
     body: str = "lca"                 # 'lca' | 'lsa' (one study per body)
+    n_blocks: int = 1                 # stacked (body -> dense) blocks (fixed per study)
     source: str = "audio"             # 'audio' | 'synthetic' (synthetic = plumbing tests)
     train_path: Optional[str] = None
     test_path: Optional[str] = None
@@ -82,6 +83,7 @@ class HpoBase:
 
         return cls(
             body=e("PHASOR_HPO_BODY", "lca"),
+            n_blocks=_i("PHASOR_HPO_N_BLOCKS", 1),
             source=e("PHASOR_HPO_SOURCE", "audio"),
             train_path=e("PHASOR_HPO_TRAIN_PATH") or None,
             test_path=e("PHASOR_HPO_TEST_PATH") or None,
@@ -217,6 +219,7 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
     model: dict[str, Any] = {
         "frontend": "resonant" if base.source == "audio" else "none",
         "body": base.body,
+        "n_blocks": int(base.n_blocks),
         "n_classes": int(base.n_classes),
         "n_freqs": int(base.n_freqs),
         "downsample_factor": int(base.downsample_factor),
