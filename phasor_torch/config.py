@@ -46,6 +46,9 @@ class ModelConfig:
     n_heads: int = 4
     n_anchors: int = 32         # only used when body == 'lca'
     init_scale: float = 3.0
+    # Number of stacked (body -> dense) blocks between the input embedding and
+    # readout. 1 = the canonical single-block chain (unchanged behavior).
+    n_blocks: int = 1
 
     # Readout: 'codebook' | 'ssm'.
     readout: Literal["codebook", "ssm"] = "ssm"
@@ -96,6 +99,10 @@ class TrainConfig:
     # over the last `patience` epochs. 0 disables (the trainer runs all epochs).
     patience: int = 0
     min_delta: float = 0.0
+    # Cosine LR decay over the whole run, annealing from `lr` to `lr_min`
+    # (per optimizer step). Mirrors Julia Args.cosine_schedule / lr_min.
+    cosine_schedule: bool = False
+    lr_min: float = 1e-6
     # Checkpointing (only active when a save target / checkpoint dir exists):
     #   save_best       -> write best.h5 whenever test_acc improves (matches the
     #                      HPO objective's reported best, unlike the final weights).

@@ -46,6 +46,7 @@ class HpoBase:
     """
 
     body: str = "lca"                 # 'lca' | 'lsa' (one study per body)
+    n_blocks: int = 1                 # stacked (body -> dense) blocks (fixed per study)
     source: str = "audio"             # 'audio' | 'synthetic' (synthetic = plumbing tests)
     train_path: Optional[str] = None
     test_path: Optional[str] = None
@@ -60,6 +61,8 @@ class HpoBase:
     epochs_max: int = 80
     patience: int = 6                 # early-stop a trial after N epochs w/o test_loss improvement
     min_delta: float = 0.0
+    cosine_schedule: bool = False     # cosine LR decay (lr -> lr_min) over each trial
+    lr_min: float = 1e-6
     save_best: bool = True            # write best.h5 per trial (cheap; matches reported best test_acc)
     checkpoint_every: int = 0         # periodic ckpt_epoch{N}.h5 per trial (0 = off)
     seed: int = 0
@@ -84,6 +87,7 @@ class HpoBase:
 
         return cls(
             body=e("PHASOR_HPO_BODY", "lca"),
+            n_blocks=_i("PHASOR_HPO_N_BLOCKS", 1),
             source=e("PHASOR_HPO_SOURCE", "audio"),
             train_path=e("PHASOR_HPO_TRAIN_PATH") or None,
             test_path=e("PHASOR_HPO_TEST_PATH") or None,
@@ -98,6 +102,8 @@ class HpoBase:
             epochs_max=_i("PHASOR_HPO_EPOCHS_MAX", 80),
             patience=_i("PHASOR_HPO_PATIENCE", 6),
             min_delta=float(e("PHASOR_HPO_MIN_DELTA") or 0.0),
+            cosine_schedule=(e("PHASOR_HPO_COSINE", "").lower() in ("1", "true", "yes")),
+            lr_min=float(e("PHASOR_HPO_LR_MIN") or 1e-6),
             save_best=(e("PHASOR_HPO_SAVE_BEST", "1").lower() not in ("0", "false", "no")),
             checkpoint_every=_i("PHASOR_HPO_CHECKPOINT_EVERY", 0),
             seed=_i("PHASOR_HPO_SEED", 0),
@@ -118,7 +124,7 @@ class HpoBase:
 DISCRETE_CHOICES: dict[str, tuple[int, ...]] = {
     "d_hidden": (64, 128, 256),
     "n_heads": (2, 4, 8),
-    "n_anchors": (32, 64, 128),
+    "n_anchors": (32, 64, 128, 256),
 }
 DISCRETE_DEFAULT_IDX = {"d_hidden": 0, "n_heads": 1, "n_anchors": 0}  # 64, 4, 32
 
@@ -151,7 +157,7 @@ def make_space(base: HpoBase):
             Integer("n_heads_i", bounds=(0, _idx_hi("n_heads")),
                     default=DISCRETE_DEFAULT_IDX["n_heads"]),
             Float("init_scale", bounds=(1.0, 5.0), default=3.0),
-            Float("readout_frac", bounds=(0.1, 0.5), default=0.25),
+            Float("readout_frac", bounds=(0.1, 1.0), default=0.25),
             Float("weight_decay", bounds=(1e-8, 1e-3), log=True, default=1e-8),
         ]
         if sweep_epochs:
@@ -173,7 +179,7 @@ def make_space(base: HpoBase):
                                              default_value=DISCRETE_DEFAULT_IDX["n_heads"]),
             CSH.UniformFloatHyperparameter("init_scale", lower=1.0, upper=5.0,
                                            default_value=3.0),
-            CSH.UniformFloatHyperparameter("readout_frac", lower=0.1, upper=0.5,
+            CSH.UniformFloatHyperparameter("readout_frac", lower=0.1, upper=1.0,
                                            default_value=0.25),
             CSH.UniformFloatHyperparameter("weight_decay", lower=1e-8, upper=1e-3,
                                            log=True, default_value=1e-8),
@@ -221,6 +227,7 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
     model: dict[str, Any] = {
         "frontend": "resonant" if base.source == "audio" else "none",
         "body": base.body,
+        "n_blocks": int(base.n_blocks),
         "n_classes": int(base.n_classes),
         "n_freqs": int(base.n_freqs),
         "downsample_factor": int(base.downsample_factor),
@@ -244,6 +251,8 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
         "seed": int(base.seed),
         "patience": int(base.patience),
         "min_delta": float(base.min_delta),
+        "cosine_schedule": bool(base.cosine_schedule),
+        "lr_min": float(base.lr_min),
         "save_best": bool(base.save_best),
         "checkpoint_every": int(base.checkpoint_every),
     }

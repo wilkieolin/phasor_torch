@@ -24,6 +24,7 @@ ensemble.log
 libE_stats.txt
 ensemble_*/
 *.npy
+libE_*.pickle
 
 # Editor / OS
 .DS_Store
