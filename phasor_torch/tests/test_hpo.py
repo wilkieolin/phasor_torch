@@ -149,6 +149,18 @@ def test_make_space_lsa_no_anchors():
     assert "epochs" not in names   # fixed bounds -> not a swept dimension
 
 
+def test_n_anchors_includes_256():
+    assert hpo.DISCRETE_CHOICES["n_anchors"] == (32, 64, 128, 256)
+    assert hpo._resolve_discrete({"n_anchors_i": 3}, "n_anchors") == 256
+
+
+def test_widened_search_bounds():
+    pytest.importorskip("ConfigSpace")
+    cs = hpo.make_space(hpo.HpoBase(body="lca", epochs_min=30, epochs_max=80))
+    assert cs["readout_frac"].upper == 1.0    # raised from 0.5
+    assert cs["n_anchors_i"].upper == 3       # 4 choices -> index 0..3
+
+
 # --- early stopping --------------------------------------------------------
 
 
