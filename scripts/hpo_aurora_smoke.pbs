@@ -1,7 +1,7 @@
 #!/bin/bash -l
 # Single-node DEBUG-queue smoke for the libEnsemble HPO + XPU tile pinning.
 # Validates: libE under mpiexec, the ytopt generator + sim workers, per-worker
-# trials landing on DISTINCT tiles (ZE_AFFINITY_MASK), all on xpu. Synthetic
+# trials landing on DISTINCT tiles (xpu:<tile> per rank), all on xpu. Synthetic
 # source + epochs=1 keep it fast (no audio/FFT cost). Edit -A/-q to your project.
 #   qsub scripts/hpo_aurora_smoke.pbs
 #
