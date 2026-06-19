@@ -1,0 +1,65 @@
+#!/bin/bash -l
+# DEBUG-queue job to characterize per-step time + peak XPU memory for the audio
+# model (scripts/bench_xpu.py), single node / single tile. Edit -A/-q if needed.
+#   qsub scripts/bench_xpu.pbs
+# Override the grid/estimate knobs without editing the file, e.g.:
+#   qsub -v BODY=lsa,BATCH=8,DHIDDEN=64,128,256,NUM_TRAIN=4096,EPOCHS=30 scripts/bench_xpu.pbs
+#
+#PBS -A EE-ECP
+#PBS -q debug
+#PBS -l select=1
+#PBS -l walltime=00:20:00
+#PBS -l filesystems=home:flare
+#PBS -N phasor_bench
+#PBS -j oe
+# No `set -u`: lmod's `module load` references unset vars and aborts under nounset.
+set -eo pipefail
+
+module load frameworks
+source /flare/EE-ECP/wolin/envs/phasor_hpo/bin/activate
+
+REPO=/flare/EE-ECP/wolin/phasor_torch
+cd "$REPO"
+export PYTHONPATH="$REPO"
+export PYTHONUNBUFFERED=1
+
+# NOTE: do NOT force ZE_AFFINITY_MASK here. With the frameworks module's
+# ONEAPI_DEVICE_SELECTOR, setting a "gpu.tile" mask on a plain (non-mpiexec)
+# process makes torch report zero XPU devices. The bench runs on xpu:0 (one
+# tile) regardless, so the peak-memory figures are already per-tile.
+
+# Knobs (override with `qsub -v ...`).
+BODY="${BODY:-lca}"
+BATCH="${BATCH:-8,16,32}"
+DHIDDEN="${DHIDDEN:-64,128,256}"
+NFREQS="${NFREQS:-64}"
+DOWNSAMPLE="${DOWNSAMPLE:-32}"
+NANCHORS="${NANCHORS:-32}"
+NCLASSES="${NCLASSES:-30}"
+STEPS="${STEPS:-6}"
+WARMUP="${WARMUP:-2}"
+# node-hours extrapolation
+NUM_TRAIN="${NUM_TRAIN:-51088}"
+EPOCHS="${EPOCHS:-50}"
+NTRIALS="${NTRIALS:-200}"
+NODES="${NODES:-2}"
+TILES_PER_NODE="${TILES_PER_NODE:-12}"
+
+echo "bench: body=$BODY batch=$BATCH d_hidden=$DHIDDEN tile=$ZE_AFFINITY_MASK"
+
+python scripts/bench_xpu.py \
+  --device xpu \
+  --body "$BODY" \
+  --batch "$BATCH" \
+  --d-hidden "$DHIDDEN" \
+  --n-freqs "$NFREQS" \
+  --downsample "$DOWNSAMPLE" \
+  --n-anchors "$NANCHORS" \
+  --n-classes "$NCLASSES" \
+  --steps "$STEPS" \
+  --warmup "$WARMUP" \
+  --num-train "$NUM_TRAIN" \
+  --epochs "$EPOCHS" \
+  --n-trials "$NTRIALS" \
+  --nodes "$NODES" \
+  --tiles-per-node "$TILES_PER_NODE"
