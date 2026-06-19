@@ -114,7 +114,7 @@ class HpoBase:
 DISCRETE_CHOICES: dict[str, tuple[int, ...]] = {
     "d_hidden": (64, 128, 256),
     "n_heads": (2, 4, 8),
-    "n_anchors": (32, 64, 128),
+    "n_anchors": (32, 64, 128, 256),
 }
 DISCRETE_DEFAULT_IDX = {"d_hidden": 0, "n_heads": 1, "n_anchors": 0}  # 64, 4, 32
 
@@ -147,7 +147,7 @@ def make_space(base: HpoBase):
             Integer("n_heads_i", bounds=(0, _idx_hi("n_heads")),
                     default=DISCRETE_DEFAULT_IDX["n_heads"]),
             Float("init_scale", bounds=(1.0, 5.0), default=3.0),
-            Float("readout_frac", bounds=(0.1, 0.5), default=0.25),
+            Float("readout_frac", bounds=(0.1, 1.0), default=0.25),
             Float("weight_decay", bounds=(1e-8, 1e-3), log=True, default=1e-8),
         ]
         if sweep_epochs:
@@ -169,7 +169,7 @@ def make_space(base: HpoBase):
                                              default_value=DISCRETE_DEFAULT_IDX["n_heads"]),
             CSH.UniformFloatHyperparameter("init_scale", lower=1.0, upper=5.0,
                                            default_value=3.0),
-            CSH.UniformFloatHyperparameter("readout_frac", lower=0.1, upper=0.5,
+            CSH.UniformFloatHyperparameter("readout_frac", lower=0.1, upper=1.0,
                                            default_value=0.25),
             CSH.UniformFloatHyperparameter("weight_decay", lower=1e-8, upper=1e-3,
                                            log=True, default_value=1e-8),
