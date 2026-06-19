@@ -192,6 +192,21 @@ def forward_model(schema: OrderedDict[str, nn.Module], x: Tensor,
 # --------------------------------------------------------------------------
 
 
+def _early_stop(test_losses: list[float], patience: int, min_delta: float) -> bool:
+    """True if test_loss hasn't improved over the last `patience` epochs.
+
+    Compares the minimum test_loss within the last `patience` epochs against the
+    best test_loss before that window; if the recent window didn't beat it (by
+    more than `min_delta`), the run has plateaued and should stop. Needs more
+    than `patience` observations before it can trigger. `patience <= 0` disables.
+    """
+    if patience <= 0 or len(test_losses) <= patience:
+        return False
+    best_before = min(test_losses[:-patience])
+    recent_best = min(test_losses[-patience:])
+    return recent_best >= best_before - min_delta
+
+
 @torch.no_grad()
 def evaluate(schema: OrderedDict[str, nn.Module], loader, device: torch.device,
              n_classes: int, downsample_factor: int = 1) -> tuple[float, float]:
@@ -311,6 +326,12 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
         history.append(row)
         print(f"epoch {epoch}: train_loss={train_loss:.4f} train_acc={train_acc:.3f}"
               f" | test_loss={test_loss:.4f} test_acc={test_acc:.3f}")
+
+        if _early_stop([r["test_loss"] for r in history],
+                       run.train.patience, run.train.min_delta):
+            print(f"early stop at epoch {epoch}: test_loss no improvement in "
+                  f"{run.train.patience} epochs")
+            break
 
     final_save = save_path or run.train.checkpoint_path
     if final_save is not None:

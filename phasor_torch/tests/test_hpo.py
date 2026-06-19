@@ -47,6 +47,7 @@ def test_point_to_runconfig_lca_audio():
     assert run.data.train_limit == 64
     assert run.train.lr == 5e-4 and run.train.epochs == 1
     assert run.train.weight_decay == 1e-6
+    assert run.train.patience == 6        # HpoBase default early-stop patience
 
 
 def test_point_to_runconfig_lsa_omits_anchors():
@@ -136,6 +137,36 @@ def test_make_space_lsa_no_anchors():
         else set(cs.get_hyperparameter_names())
     assert "n_anchors_i" not in names
     assert "epochs" not in names   # fixed bounds -> not a swept dimension
+
+
+# --- early stopping --------------------------------------------------------
+
+
+def test_early_stop_disabled_or_too_few():
+    from phasor_torch.train import _early_stop
+    assert _early_stop([1.0, 0.9, 0.8], patience=0, min_delta=0.0) is False   # disabled
+    assert _early_stop([1.0, 0.9], patience=6, min_delta=0.0) is False        # too few epochs
+
+
+def test_early_stop_triggers_on_plateau():
+    from phasor_torch.train import _early_stop
+    # best (0.80) was at epoch 3; last 3 never beat it -> stop.
+    losses = [1.0, 0.9, 0.8, 0.85, 0.86, 0.87]
+    assert _early_stop(losses, patience=3, min_delta=0.0) is True
+
+
+def test_early_stop_holds_while_improving():
+    from phasor_torch.train import _early_stop
+    losses = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5]   # still decreasing
+    assert _early_stop(losses, patience=3, min_delta=0.0) is False
+
+
+def test_early_stop_min_delta():
+    from phasor_torch.train import _early_stop
+    # tiny improvements below min_delta count as no improvement -> stop.
+    losses = [1.0, 0.9, 0.80, 0.799, 0.798, 0.797]
+    assert _early_stop(losses, patience=3, min_delta=0.01) is True
+    assert _early_stop(losses, patience=3, min_delta=0.0) is False
 
 
 # --- libEnsemble launcher helpers ------------------------------------------

@@ -25,6 +25,7 @@ EPOCHS_MIN=30
 EPOCHS_MAX=80
 LEARNER=RF
 SOURCE=audio
+PATIENCE=6
 TRAIN=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw.h5
 TEST=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw_test.h5
 OUTDIR=hpo_runs
@@ -39,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --max-evals) MAX_EVALS="$2"; shift 2;;
     --epochs-min) EPOCHS_MIN="$2"; shift 2;;
     --epochs-max) EPOCHS_MAX="$2"; shift 2;;
+    --patience) PATIENCE="$2"; shift 2;;
     --source) SOURCE="$2"; shift 2;;
     --train-path) TRAIN="$2"; shift 2;;
     --test-path) TEST="$2"; shift 2;;
@@ -61,6 +63,7 @@ export PHASOR_HPO_TRAIN_PATH="$TRAIN"
 export PHASOR_HPO_TEST_PATH="$TEST"
 export PHASOR_HPO_EPOCHS_MIN="$EPOCHS_MIN"
 export PHASOR_HPO_EPOCHS_MAX="$EPOCHS_MAX"
+export PHASOR_HPO_PATIENCE="$PATIENCE"
 export PHASOR_HPO_DEVICE="$DEVICE"
 export PHASOR_HPO_OUTDIR="$OUTDIR/$BODY"
 export PHASOR_HPO_ENSEMBLE_DIR="$PHASOR_HPO_OUTDIR/ensemble"
@@ -68,7 +71,7 @@ export PHASOR_HPO_ENSEMBLE_DIR="$PHASOR_HPO_OUTDIR/ensemble"
 [ -n "$TEST_LIMIT" ] && export PHASOR_HPO_TEST_LIMIT="$TEST_LIMIT"
 
 mkdir -p "$PHASOR_HPO_OUTDIR"
-echo "libE study: body=$BODY source=$SOURCE nworkers=$NWORKERS (sims=$((NWORKERS-1))) max_evals=$MAX_EVALS epochs=[$EPOCHS_MIN,$EPOCHS_MAX] device=$DEVICE"
+echo "libE study: body=$BODY source=$SOURCE nworkers=$NWORKERS (sims=$((NWORKERS-1))) max_evals=$MAX_EVALS epochs=[$EPOCHS_MIN,$EPOCHS_MAX] patience=$PATIENCE device=$DEVICE"
 echo "artifacts: $PHASOR_HPO_OUTDIR   results: $PHASOR_HPO_OUTDIR/results.csv"
 
 python -m phasor_torch.hpo_libe \

@@ -58,6 +58,8 @@ class HpoBase:
     test_limit: Optional[int] = None
     epochs_min: int = 30              # epochs is a swept dim; bounds come from env
     epochs_max: int = 80
+    patience: int = 6                 # early-stop a trial after N epochs w/o test_loss improvement
+    min_delta: float = 0.0
     seed: int = 0
     outdir: str = "hpo_runs"
     # synthetic-only fallbacks (used when source == 'synthetic', for fast tests)
@@ -92,6 +94,8 @@ class HpoBase:
             test_limit=_oi("PHASOR_HPO_TEST_LIMIT"),
             epochs_min=_i("PHASOR_HPO_EPOCHS_MIN", 30),
             epochs_max=_i("PHASOR_HPO_EPOCHS_MAX", 80),
+            patience=_i("PHASOR_HPO_PATIENCE", 6),
+            min_delta=float(e("PHASOR_HPO_MIN_DELTA") or 0.0),
             seed=_i("PHASOR_HPO_SEED", 0),
             outdir=e("PHASOR_HPO_OUTDIR", "hpo_runs"),
         )
@@ -234,6 +238,8 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
         "epochs": epochs,
         "device": base.device,
         "seed": int(base.seed),
+        "patience": int(base.patience),
+        "min_delta": float(base.min_delta),
     }
 
     if base.source == "audio":
@@ -283,8 +289,11 @@ def objective(point: dict) -> float:
     try:
         run = point_to_runconfig(point, base)
         result = train(run, save_path=str(trial / "checkpoint.h5"))
+        history = result.get("history") or []
         final = result.get("final") or {}
-        test_acc = float(final.get("test_acc", 0.0))
+        # Best test_acc over the run (robust to the early-stop plateau tail).
+        test_acc = max((float(r.get("test_acc", 0.0)) for r in history),
+                       default=float(final.get("test_acc", 0.0)))
         # Record both the raw sampled point (indices) and the resolved config
         # (real values) so the trial dir is human-readable.
         (trial / "config.json").write_text(json.dumps({

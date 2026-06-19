@@ -92,6 +92,10 @@ class TrainConfig:
     device: str = "auto"                  # 'auto' | 'cpu' | 'cuda' | 'xpu'
     seed: int = 0
     checkpoint_path: Optional[str] = None  # HDF5 path; saved per epoch if set
+    # Early stopping: stop if test_loss hasn't improved (decreased by > min_delta)
+    # over the last `patience` epochs. 0 disables (the trainer runs all epochs).
+    patience: int = 0
+    min_delta: float = 0.0
 
 
 @dataclass(frozen=True)
