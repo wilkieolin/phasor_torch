@@ -194,6 +194,13 @@ def main():
     }
     alloc_specs = {"alloc_f": alloc_f, "user": {"async_return": True}}
     exit_criteria = {"gen_max": int(user_args["max-evals"])}
+    # Graceful stop: if PHASOR_HPO_WALLCLOCK_MAX (seconds) is set, libE stops
+    # issuing new trials at that point and the manager still writes results.csv
+    # below -- set it a bit under the PBS walltime so the job isn't killed
+    # mid-run with no trajectory CSV.
+    _wc = os.environ.get("PHASOR_HPO_WALLCLOCK_MAX")
+    if _wc:
+        exit_criteria["wallclock_max"] = float(_wc)
 
     os.makedirs(base.outdir, exist_ok=True)
     libE_specs["use_worker_dirs"] = True
