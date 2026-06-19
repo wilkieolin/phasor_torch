@@ -12,7 +12,9 @@
 #PBS -l filesystems=home:flare
 #PBS -N phasor_hpo_smoke
 #PBS -j oe
-set -euo pipefail
+# No `set -u`: lmod's `module load` references unset vars (e.g. ZSH_EVAL_CONTEXT)
+# and would abort under nounset.
+set -eo pipefail
 
 module load frameworks
 source /flare/EE-ECP/wolin/envs/phasor_hpo/bin/activate
@@ -33,7 +35,9 @@ export PHASOR_HPO_ENSEMBLE_DIR=${PHASOR_HPO_OUTDIR}/ensemble
 export PHASOR_AFFINITY_VERBOSE=1            # print rank -> tile mapping
 mkdir -p "$PHASOR_HPO_OUTDIR"
 
-MAX_EVALS=6
+# >10 so the run leaves ytopt's initial random phase and exercises the surrogate
+# (Optimizer.tell -> model fit) under MPI, not just the random sampling.
+MAX_EVALS=12
 # 4 ranks: manager + generator + 2 sim workers => 2 concurrent trials on 2 tiles.
 RANKS=4
 TILES_PER_NODE=$RANKS                       # map local ranks 0..3 -> tiles 0.0,0.1,1.0,1.1

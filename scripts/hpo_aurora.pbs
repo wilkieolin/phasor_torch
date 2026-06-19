@@ -10,7 +10,9 @@
 #PBS -l filesystems=home:flare
 #PBS -N phasor_hpo
 #PBS -j oe
-set -euo pipefail
+# No `set -u`: lmod's `module load` references unset vars (e.g. ZSH_EVAL_CONTEXT)
+# and would abort under nounset.
+set -eo pipefail
 
 module load frameworks
 # The dedicated env built by scripts/setup_hpo_env.sh (venv on the module, or a
