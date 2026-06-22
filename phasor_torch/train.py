@@ -31,6 +31,7 @@ from .layers import (
     PhasorDense,
     PhasorLCA,
     PhasorLSA,
+    PhasorResidualBlock,
     ResonantSTFT,
     SSMReadout,
     downsample_time,
@@ -127,9 +128,15 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
             use_bias=False, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
             spk_args=spk, generator=generator,
         )
-        if attn is not None:
-            blocks.append((f"body{suffix}", attn))
-        blocks.append((f"dense{suffix}", dense))
+        if cfg.residual:
+            # v_bind residual skips around body + dense (mirrors Julia
+            # SingleHeadCABlock). Keyed block/block{i} -> Lux block parity.
+            bsuf = "" if n_blocks == 1 else str(i)
+            blocks.append((f"block{bsuf}", PhasorResidualBlock(attn, dense)))
+        else:
+            if attn is not None:
+                blocks.append((f"body{suffix}", attn))
+            blocks.append((f"dense{suffix}", dense))
 
     if cfg.readout == "ssm":
         readout = SSMReadout(

@@ -250,6 +250,39 @@ def freq_shift(Z: Tensor, omega: Tensor, omega_out: float, dt: float) -> Tensor:
 
 
 # --------------------------------------------------------------------------
+# VSA binding / bundling (Phase domain)
+# --------------------------------------------------------------------------
+
+
+def v_bind(x: Tensor, y: Tensor) -> Tensor:
+    """Bind two Phase tensors: phase addition with wrap. Mirrors Julia vsa.jl:19.
+
+    `y_out = remap_phase(x + y)`. This is the phase-domain analog of an additive
+    residual: because `remap_phase` is straight-through (the wrap is non-
+    differentiable, gradient = identity on `x + y`), the backward pass sees
+    `d(v_bind)/dx = I + d(.)/dx` — the identity gradient highway that lets deep
+    stacked phasor blocks train. Both operands must be in the same (shared-omega)
+    phase frame; binding is elementwise and broadcasts over `(C, L, B)`.
+    """
+    return remap_phase(x + y)
+
+
+def v_unbind(x: Tensor, y: Tensor) -> Tensor:
+    """Unbind (inverse of v_bind): phase subtraction with wrap. Julia vsa.jl:717."""
+    return remap_phase(x - y)
+
+
+def v_bundle(x: Tensor, dim: int = 0) -> Tensor:
+    """Bundle (superpose) Phase tensors along `dim`. Mirrors Julia vsa.jl:97.
+
+    Sum on the unit circle then take the angle:
+    `complex_to_angle(sum(angle_to_complex(x), dim))`. Unlike v_bind this is a
+    magnitude-aware superposition (averaging direction), not phase addition.
+    """
+    return complex_to_angle(angle_to_complex(x).sum(dim=dim))
+
+
+# --------------------------------------------------------------------------
 # Pairwise interference similarity (memory-efficient closed-form rrule)
 # --------------------------------------------------------------------------
 

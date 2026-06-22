@@ -9,7 +9,14 @@ import math
 
 import torch
 
-from phasor_torch.primitives import freq_shift, soft_normalize_to_unit_circle
+from phasor_torch.primitives import (
+    freq_shift,
+    remap_phase,
+    soft_normalize_to_unit_circle,
+    v_bind,
+    v_bundle,
+    v_unbind,
+)
 
 
 # --------------------------------------------------------------------------
@@ -144,3 +151,52 @@ def test_freq_shift_grad_finite():
     (Y.real.sum() + Y.imag.sum()).backward()
     assert torch.isfinite(Z.grad.real).all() and torch.isfinite(Z.grad.imag).all()
     assert torch.isfinite(omega.grad).all()
+
+
+# --------------------------------------------------------------------------
+# VSA binding / bundling
+# --------------------------------------------------------------------------
+
+
+def test_v_bind_is_wrapped_phase_addition():
+    x = torch.tensor([0.3, 0.8, -0.5, 0.9])
+    y = torch.tensor([0.4, 0.5, -0.7, 0.6])
+    out = v_bind(x, y)
+    assert torch.allclose(out, remap_phase(x + y), atol=1e-6)
+    assert (out >= -1.0).all() and (out <= 1.0).all()   # stays in phase range
+    # 0.8 + 0.5 = 1.3 -> wraps to -0.7
+    assert abs(float(out[1]) - (-0.7)) < 1e-5
+
+
+def test_v_unbind_inverts_v_bind():
+    g = torch.Generator().manual_seed(0)
+    x = (torch.rand(5, 3, 2, generator=g) * 2 - 1)
+    y = (torch.rand(5, 3, 2, generator=g) * 2 - 1)
+    recovered = v_unbind(v_bind(x, y), y)               # bind then unbind by y
+    # equal up to phase wrapping
+    diff = remap_phase(recovered - x)
+    assert torch.allclose(diff, torch.zeros_like(diff), atol=1e-5)
+
+
+def test_v_bind_identity_gradient_highway():
+    # The residual point: d(v_bind(x,y))/dx includes the identity (straight-through
+    # wrap), so a unit upstream grad reaches x as ~1 (the gradient highway).
+    x = torch.randn(4, 3, 2, requires_grad=True)
+    y = torch.randn(4, 3, 2, requires_grad=True)
+    v_bind(x, y).sum().backward()
+    assert torch.allclose(x.grad, torch.ones_like(x.grad), atol=1e-6)
+    assert torch.allclose(y.grad, torch.ones_like(y.grad), atol=1e-6)
+
+
+def test_v_bundle_matches_complex_mean_direction():
+    # Two opposite-ish phases bundle toward their circular mean; output in range.
+    x = torch.tensor([[0.25], [-0.25]])      # +45deg, -45deg -> mean 0
+    out = v_bundle(x, dim=0)                  # (1,)
+    assert out.shape == (1,)
+    assert abs(float(out[0])) < 1e-5          # bundles to phase 0
+
+
+def test_v_bundle_grad_finite():
+    x = (torch.rand(6, 4, 2) * 2 - 1).requires_grad_(True)
+    v_bundle(x, dim=0).abs().sum().backward()
+    assert torch.isfinite(x.grad).all()

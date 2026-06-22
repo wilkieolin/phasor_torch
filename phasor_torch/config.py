@@ -49,6 +49,9 @@ class ModelConfig:
     # Number of stacked (body -> dense) blocks between the input embedding and
     # readout. 1 = the canonical single-block chain (unchanged behavior).
     n_blocks: int = 1
+    # VSA-binding residual skips per block (v_bind around body and dense), for
+    # gradient stability in deep stacks. False = plain sequential (unchanged).
+    residual: bool = False
 
     # Readout: 'codebook' | 'ssm'.
     readout: Literal["codebook", "ssm"] = "ssm"
