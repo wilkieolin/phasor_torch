@@ -52,6 +52,12 @@ class ModelConfig:
     # VSA-binding residual skips per block (v_bind around body and dense), for
     # gradient stability in deep stacks. False = plain sequential (unchanged).
     residual: bool = False
+    # Complex bias (init 1+0i) in the body PhasorDense layers + LCA/LSA
+    # projections. Shifts pre-activation Z off the complex origin so
+    # complex_to_angle's 1/|z|^2 gradient stays well-conditioned and v_bind
+    # residual blocks are identity-able at init (arXiv:2207.08953). False keeps
+    # the current bias-free behavior (and existing parity fixtures).
+    use_bias: bool = False
 
     # Readout: 'codebook' | 'ssm'.
     readout: Literal["codebook", "ssm"] = "ssm"

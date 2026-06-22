@@ -55,11 +55,12 @@ def _build(cfg_kw, device, gen):
     return model.to(device), schema
 
 
-def run_case(body, n_blocks, residual, device, *, L=32, B=16,
+def run_case(body, n_blocks, residual, device, *, use_bias=False, L=32, B=16,
              steps=30, lr=1e-3):
     gen = torch.Generator().manual_seed(0)
-    model, schema = _build(dict(body=body, n_blocks=n_blocks, residual=residual),
-                           device, gen)
+    model, schema = _build(
+        dict(body=body, n_blocks=n_blocks, residual=residual, use_bias=use_bias),
+        device, gen)
     xg = torch.Generator().manual_seed(1)
     x = (torch.rand(64, L, B, generator=xg) * 2 - 1).to(device)
     y = torch.randint(0, 10, (B,), generator=xg).to(device)
@@ -95,20 +96,19 @@ def main(argv=None):
 
     print(f"device={device} body={args.body} steps={args.steps}  "
           f"(block grad norms: idx0 = nearest input)\n")
-    hdr = f"{'residual':>8} {'depth':>5} {'in_gn':>9} {'blk0_gn':>9} {'blkN_gn':>9} " \
-          f"{'b0/bN':>8} {'max/min':>9} {'loss0':>7} {'loss_f':>7} {'descend':>7}"
+    hdr = f"{'resid':>5} {'bias':>5} {'depth':>5} {'in_gn':>9} {'blk0_gn':>9} {'blkN_gn':>9} " \
+          f"{'b0/bN':>10} {'loss0':>7} {'loss_f':>7} {'descend':>7}"
     print(hdr)
     print("-" * len(hdr))
-    for residual in (False, True):
+    for residual, use_bias in ((False, False), (True, False), (False, True), (True, True)):
         for d in depths:
             in_gn, prof, l0, lf = run_case(args.body, d, residual, device,
-                                           steps=args.steps)
+                                           use_bias=use_bias, steps=args.steps)
             b0, bN = prof[0], prof[-1]
             ratio = b0 / bN if bN > 0 else float("inf")
-            mm = (max(prof) / min(prof)) if min(prof) > 0 else float("inf")
             descend = "yes" if lf < l0 - 1e-4 else "NO"
-            print(f"{str(residual):>8} {d:>5} {in_gn:>9.2e} {b0:>9.2e} {bN:>9.2e} "
-                  f"{ratio:>8.2f} {mm:>9.1f} {l0:>7.3f} {lf:>7.3f} {descend:>7}")
+            print(f"{str(residual):>5} {str(use_bias):>5} {d:>5} {in_gn:>9.2e} "
+                  f"{b0:>9.2e} {bN:>9.2e} {ratio:>10.2f} {l0:>7.3f} {lf:>7.3f} {descend:>7}")
         print()
 
 

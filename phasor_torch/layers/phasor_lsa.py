@@ -92,6 +92,7 @@ class PhasorLSA(nn.Module):
         *,
         init_scale: float = 3.0,
         init_mode: str = "hippo",
+        use_bias: bool = False,
         spk_args: Optional[SpikingArgs] = None,
         generator: torch.Generator | None = None,
     ):
@@ -105,7 +106,10 @@ class PhasorLSA(nn.Module):
         self.n_heads = int(n_heads)
         self.activation = activation
         spk = spk_args or SpikingArgs()
-        kwargs = dict(use_bias=False, init_mode=init_mode, spk_args=spk)
+        # use_bias shifts q/k/v projection Z to 1+0i (off the origin), which both
+        # tames complex_to_angle's 1/|z|^2 gradient and makes the layer
+        # identity-able for v_bind residuals (arXiv:2207.08953).
+        kwargs = dict(use_bias=use_bias, init_mode=init_mode, spk_args=spk)
         self.q_proj = PhasorDense(in_dims, d_model, generator=generator, **kwargs)
         self.k_proj = PhasorDense(in_dims, d_model, generator=generator, **kwargs)
         self.v_proj = PhasorDense(in_dims, d_model, generator=generator, **kwargs)

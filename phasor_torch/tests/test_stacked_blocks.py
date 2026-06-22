@@ -14,10 +14,10 @@ def _phase_input(C, L, B, seed=0):
     return (torch.rand(C, L, B, generator=g) * 2 - 1).float()
 
 
-def _cfg(body="lca", n_blocks=1, residual=False):
+def _cfg(body="lca", n_blocks=1, residual=False, use_bias=False):
     return ModelConfig(frontend="none", body=body, d_hidden=32, n_heads=4,
                        n_anchors=8, in_dims=32, n_classes=10, n_blocks=n_blocks,
-                       residual=residual)
+                       residual=residual, use_bias=use_bias)
 
 
 def test_single_block_keys_unchanged():
@@ -114,3 +114,24 @@ def test_residual_passthrough_in_hpo():
              "readout_frac": 0.25, "weight_decay": 1e-8, "epochs": 1}
     run = hpo.point_to_runconfig(point, base)
     assert run.model.residual is False    # default off
+
+
+# --- use_bias threading (arXiv:2207.08953: shift Z off the origin) ---------
+
+
+def test_use_bias_threads_through():
+    _, s = build_model(_cfg("lca", n_blocks=2, use_bias=True))
+    assert s["input"].use_bias is True
+    assert s["body0"].k_proj.use_bias is True and s["body0"].v_proj.use_bias is True
+    assert s["dense0"].use_bias is True
+    # bias init is 1+0i (the paper's origin shift)
+    import torch
+    assert torch.allclose(s["input"].bias_real, torch.ones_like(s["input"].bias_real))
+    assert torch.allclose(s["input"].bias_imag, torch.zeros_like(s["input"].bias_imag))
+
+
+def test_use_bias_default_off():
+    _, s = build_model(_cfg("lca", n_blocks=1))     # default use_bias=False
+    assert s["input"].use_bias is False
+    assert s["body"].k_proj.use_bias is False
+    assert s["dense"].use_bias is False
