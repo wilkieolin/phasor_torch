@@ -151,7 +151,7 @@ def make_space(base: HpoBase):
         from ConfigSpace import Float, Integer
 
         params = [
-            Float("lr", bounds=(1e-4, 1e-3), log=True, default=3e-4),
+            Float("lr", bounds=(1e-4, 3e-3), log=True, default=3e-4),
             Integer("d_hidden_i", bounds=(0, _idx_hi("d_hidden")),
                     default=DISCRETE_DEFAULT_IDX["d_hidden"]),
             Integer("n_heads_i", bounds=(0, _idx_hi("n_heads")),
@@ -169,7 +169,7 @@ def make_space(base: HpoBase):
         import ConfigSpace.hyperparameters as CSH
 
         params = [
-            CSH.UniformFloatHyperparameter("lr", lower=1e-4, upper=1e-3, log=True,
+            CSH.UniformFloatHyperparameter("lr", lower=1e-4, upper=3e-3, log=True,
                                            default_value=3e-4),
             CSH.UniformIntegerHyperparameter("d_hidden_i", lower=0,
                                              upper=_idx_hi("d_hidden"),
