@@ -18,7 +18,9 @@ julia_parity/Manifest.toml
 results.csv
 results.json
 ytopt.log
+# local run outputs + the convenience symlink to them
 hpo_runs/
+hpo_runs
 # libEnsemble run artifacts
 ensemble.log
 libE_stats.txt
