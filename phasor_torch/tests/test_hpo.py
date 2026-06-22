@@ -159,7 +159,7 @@ def test_widened_search_bounds():
     cs = hpo.make_space(hpo.HpoBase(body="lca", epochs_min=30, epochs_max=80))
     assert cs["readout_frac"].upper == 1.0    # raised from 0.5
     assert cs["n_anchors_i"].upper == 3       # 4 choices -> index 0..3
-    assert cs["lr"].upper == 3e-3             # raised from 1e-3 (railed at the ceiling)
+    assert cs["lr"].upper == 1e-2            # widened aggressively (railed at 1e-3 before)
 
 
 # --- early stopping --------------------------------------------------------
