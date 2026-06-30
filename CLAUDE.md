@@ -135,7 +135,7 @@ Same for the inverse reshape on the way back. See `phasor_torch/layers/phasor_ls
 
 ### Per-channel ω rule (inherited from PhasorNetworks.jl)
 
-All layers in this port use a **single shared `ω = 2π / t_period`** across channels. It lives as a `register_buffer` named `omega`, not a `nn.Parameter`. This maintains phase-locked communication between layers for downstream VSA operations. The only Julia layer that breaks this is `ResonantSTFT` (per-channel trainable ω with frequency re-encoding) — and `ResonantSTFT` is intentionally out of scope here.
+Most layers in this port use a **single shared `ω = 2π / t_period`** across channels. It lives as a `register_buffer` named `omega`, not a `nn.Parameter`. This maintains phase-locked communication between layers for downstream VSA operations. The **one documented exception** is `ResonantSTFT` (the audio frontend): it carries a per-channel *trainable* ω as an `nn.Parameter` and re-encodes its output back onto the shared downstream carrier via `freq_shift` so later layers resume phase-locked operation. Do not "fix" ResonantSTFT's ω into a buffer — see `phasor_torch/layers/resonant_stft.py`.
 
 ### HDF5 schema and the row-major / column-major dance
 
@@ -219,7 +219,7 @@ Adding any of these requires the Julia code to grow a corresponding feature firs
 
 - ODE solver / spiking path (`SpikingCall`, `CurrentCall`, `oscillator_bank`, `torchdiffeq` integration).
 - Equilibrium Propagation / Holomorphic EP (`src/ep.jl`, `src/hep.jl`).
-- `AttractorPhasorSSM`, `SSMCrossAttention`, `SSMSelfAttention`, `PhasorAttention`, `PhasorResonant`, `ResonantSTFT`, `PhasorConv`, `PhasorFixed`, `ComplexBias`.
+- `AttractorPhasorSSM`, `SSMCrossAttention`, `SSMSelfAttention`, `PhasorAttention`, `PhasorResonant`, `PhasorConv`, `PhasorFixed`, `ComplexBias`. (`ResonantSTFT` *is* now in scope — it's the audio frontend the LCA/LSA archs require; only its discrete 3D-Complex dispatch is ported, not its spiking return-types.)
 - A `Phase` wrapper class. The raw-tensor + documented-invariant approach is intentional.
 - Custom CUDA / Triton / Numba kernels. Vectorized PyTorch ops + `torch.compile` should be enough for this regime; profile before reaching for hand-written kernels.
 
