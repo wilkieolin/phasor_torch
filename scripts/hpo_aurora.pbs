@@ -4,7 +4,7 @@
 #   qsub scripts/hpo_aurora.pbs
 #
 #PBS -A EE-ECP
-#PBS -q prod
+#PBS -q capacity                            # <256-node jobs must use capacity; prod rejects them
 #PBS -l select=2
 #PBS -l walltime=48:00:00
 #PBS -l filesystems=home:flare
