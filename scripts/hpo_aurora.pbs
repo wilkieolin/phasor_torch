@@ -26,6 +26,10 @@ export PYTHONUNBUFFERED=1
 
 # ---- study configuration (PHASOR_HPO_* are read by the Problem) ----
 export PHASOR_HPO_BODY=lca                 # one study per body: lca | lsa
+# Depth study: one study per (body, depth). For depth > 1 you MUST use the
+# depth-robust rezero block; the plain body->dense stack collapses past depth ~2.
+export PHASOR_HPO_N_BLOCKS=1              # depth: 1 | 2 | 3
+export PHASOR_HPO_BLOCK_TYPE=plain       # set 'rezero' when N_BLOCKS > 1
 export PHASOR_HPO_SOURCE=audio
 export PHASOR_HPO_TRAIN_PATH=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw.h5
 export PHASOR_HPO_TEST_PATH=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw_test.h5
@@ -40,7 +44,9 @@ export PHASOR_HPO_EPOCHS_MAX=80
 export PHASOR_HPO_PATIENCE=6
 export PHASOR_HPO_CHECKPOINT_EVERY=10      # weight snapshot every 10 epochs per trial
 export PHASOR_HPO_DEVICE=xpu
-export PHASOR_HPO_OUTDIR=/flare/EE-ECP/wolin/hpo_runs/${PHASOR_HPO_BODY}
+# Key the study dir by body + depth + block_type so depth 1/2/3 studies (and
+# plain vs rezero) don't overwrite each other's results.csv.
+export PHASOR_HPO_OUTDIR=/flare/EE-ECP/wolin/hpo_runs/${PHASOR_HPO_BODY}_d${PHASOR_HPO_N_BLOCKS}_${PHASOR_HPO_BLOCK_TYPE}
 export PHASOR_HPO_ENSEMBLE_DIR=${PHASOR_HPO_OUTDIR}/ensemble
 # Graceful stop ~30 min before the 48h PBS walltime so libE writes results.csv
 # instead of being killed mid-run. Keep in sync with -l walltime above.

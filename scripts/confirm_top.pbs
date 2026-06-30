@@ -25,6 +25,10 @@ export PYTHONPATH="$REPO"
 export PYTHONUNBUFFERED=1
 
 export PHASOR_HPO_BODY=lca                  # must match the body of the results.csv
+# Depth/topology MUST match the sweep being confirmed (these are fixed-per-study,
+# not in results.csv, so confirm.py reconstructs them from these env vars).
+export PHASOR_HPO_N_BLOCKS=1               # depth: 1 | 2 | 3
+export PHASOR_HPO_BLOCK_TYPE=plain        # set 'rezero' when N_BLOCKS > 1
 export PHASOR_HPO_SOURCE=audio
 export PHASOR_HPO_TRAIN_PATH=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw.h5
 export PHASOR_HPO_TEST_PATH=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw_test.h5
@@ -32,11 +36,13 @@ export PHASOR_HPO_TEST_PATH=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw_
 export PHASOR_HPO_PATIENCE=6
 export PHASOR_HPO_CHECKPOINT_EVERY=10
 export PHASOR_HPO_DEVICE=xpu
-export PHASOR_HPO_OUTDIR=/flare/EE-ECP/wolin/hpo_confirm/${PHASOR_HPO_BODY}
+STUDY=${PHASOR_HPO_BODY}_d${PHASOR_HPO_N_BLOCKS}_${PHASOR_HPO_BLOCK_TYPE}
+export PHASOR_HPO_OUTDIR=/flare/EE-ECP/wolin/hpo_confirm/${STUDY}
 mkdir -p "$PHASOR_HPO_OUTDIR"
 
 # Which sweep to confirm + how many top configs (overridable via qsub -v).
-export PHASOR_CONFIRM_RESULTS=${PHASOR_CONFIRM_RESULTS:-/flare/EE-ECP/wolin/hpo_runs/${PHASOR_HPO_BODY}/results.csv}
+# Defaults to the depth-keyed study dir written by hpo_aurora.pbs.
+export PHASOR_CONFIRM_RESULTS=${PHASOR_CONFIRM_RESULTS:-/flare/EE-ECP/wolin/hpo_runs/${STUDY}/results.csv}
 export PHASOR_CONFIRM_TOPK=${PHASOR_CONFIRM_TOPK:-8}
 # export PHASOR_CONFIRM_EPOCHS=80          # uncomment to train all top-K for a fixed budget
 

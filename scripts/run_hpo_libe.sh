@@ -26,7 +26,8 @@ EPOCHS_MAX=80
 LEARNER=RF
 SOURCE=audio
 PATIENCE=6
-NBLOCKS=1          # stacked (body -> dense) blocks; fixed per study
+NBLOCKS=1          # stacked blocks; fixed per study (depth = 1/2/3)
+BLOCK_TYPE=plain   # 'plain' (orig body->dense) | 'rezero' (depth-robust); use rezero for NBLOCKS>1
 COSINE=""          # --cosine to enable cosine LR decay to LRMIN over each trial
 LRMIN=1e-6
 CKPT_EVERY=0       # periodic ckpt_epoch{N}.h5 per trial (0 = off); best.h5 is always on
@@ -46,6 +47,7 @@ while [[ $# -gt 0 ]]; do
     --epochs-max) EPOCHS_MAX="$2"; shift 2;;
     --patience) PATIENCE="$2"; shift 2;;
     --n-blocks) NBLOCKS="$2"; shift 2;;
+    --block-type) BLOCK_TYPE="$2"; shift 2;;
     --cosine) COSINE=1; shift 1;;
     --lr-min) LRMIN="$2"; shift 2;;
     --checkpoint-every) CKPT_EVERY="$2"; shift 2;;
@@ -73,6 +75,7 @@ export PHASOR_HPO_EPOCHS_MIN="$EPOCHS_MIN"
 export PHASOR_HPO_EPOCHS_MAX="$EPOCHS_MAX"
 export PHASOR_HPO_PATIENCE="$PATIENCE"
 export PHASOR_HPO_N_BLOCKS="$NBLOCKS"
+export PHASOR_HPO_BLOCK_TYPE="$BLOCK_TYPE"
 export PHASOR_HPO_COSINE="$COSINE"
 export PHASOR_HPO_LR_MIN="$LRMIN"
 export PHASOR_HPO_CHECKPOINT_EVERY="$CKPT_EVERY"
@@ -83,7 +86,7 @@ export PHASOR_HPO_ENSEMBLE_DIR="$PHASOR_HPO_OUTDIR/ensemble"
 [ -n "$TEST_LIMIT" ] && export PHASOR_HPO_TEST_LIMIT="$TEST_LIMIT"
 
 mkdir -p "$PHASOR_HPO_OUTDIR"
-echo "libE study: body=$BODY source=$SOURCE nworkers=$NWORKERS (sims=$((NWORKERS-1))) max_evals=$MAX_EVALS epochs=[$EPOCHS_MIN,$EPOCHS_MAX] patience=$PATIENCE cosine=${COSINE:-0}(lr_min=$LRMIN) device=$DEVICE"
+echo "libE study: body=$BODY n_blocks=$NBLOCKS block_type=$BLOCK_TYPE source=$SOURCE nworkers=$NWORKERS (sims=$((NWORKERS-1))) max_evals=$MAX_EVALS epochs=[$EPOCHS_MIN,$EPOCHS_MAX] patience=$PATIENCE cosine=${COSINE:-0}(lr_min=$LRMIN) device=$DEVICE"
 echo "artifacts: $PHASOR_HPO_OUTDIR   results: $PHASOR_HPO_OUTDIR/results.csv"
 
 python -m phasor_torch.hpo_libe \

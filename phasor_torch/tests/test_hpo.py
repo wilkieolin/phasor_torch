@@ -70,6 +70,43 @@ def test_point_to_runconfig_cosine_passthrough():
     assert run0.train.cosine_schedule is False
 
 
+def test_point_to_runconfig_block_type_default_plain():
+    # Unchanged default: studies are 'plain' body->dense unless told otherwise.
+    base = hpo.HpoBase(body="lsa", source="synthetic")
+    run = hpo.point_to_runconfig(_full_point("lsa"), base)
+    assert run.model.block_type == "plain"
+    assert run.model.n_blocks == 1
+
+
+def test_point_to_runconfig_rezero_depth_passthrough():
+    # Deep study: rezero block + depth threaded through, knobs at the
+    # recommended defaults, and the 5x alpha LR multiplier on the train side.
+    base = hpo.HpoBase(body="lca", source="synthetic", n_blocks=3,
+                       block_type="rezero", n_classes=10)
+    run = hpo.point_to_runconfig(_full_point("lca"), base)
+    assert run.model.block_type == "rezero"
+    assert run.model.n_blocks == 3
+    assert run.model.gate == "rezero"
+    assert run.model.recenter is False
+    assert run.model.branch_init_scale == 0.1
+    assert run.train.alpha_lr_mult == 5.0
+
+
+def test_rezero_hpo_runconfig_builds_deep_model():
+    # The threaded config must actually build a depth-stacked rezero model with
+    # a dedicated alpha optimizer group.
+    from phasor_torch.train import build_model, build_optimizer
+    base = hpo.HpoBase(body="lsa", source="synthetic", n_blocks=2,
+                       block_type="rezero", n_classes=10)
+    run = hpo.point_to_runconfig(_full_point("lsa"), base)
+    model, schema = build_model(run.model)
+    assert [k for k in schema if k.startswith("block")] == ["block0", "block1"]
+    opt = build_optimizer(model, run.train)
+    assert len(opt.param_groups) == 2          # alpha group split out
+    lrs = sorted(g["lr"] for g in opt.param_groups)
+    assert lrs[1] == lrs[0] * 5.0              # alpha at 5x base lr
+
+
 def test_point_to_runconfig_coerces_numpy_scalars():
     np = pytest.importorskip("numpy")
     base = hpo.HpoBase(body="lsa", source="synthetic", n_classes=10)

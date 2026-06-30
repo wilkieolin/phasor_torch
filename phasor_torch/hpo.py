@@ -46,7 +46,18 @@ class HpoBase:
     """
 
     body: str = "lca"                 # 'lca' | 'lsa' (one study per body)
-    n_blocks: int = 1                 # stacked (body -> dense) blocks (fixed per study)
+    n_blocks: int = 1                 # stacked blocks (fixed per study; depth = 1/2/3)
+    # Block topology, fixed per study. 'plain' = the original (body -> dense)
+    # stacking (collapses past depth ~2). 'rezero' = depth-robust
+    # PhasorTransformerBlock; use this for n_blocks > 1. The remaining knobs are
+    # the recommended-default regime from results/lsa_lca_residual and are not
+    # part of the search space.
+    block_type: str = "plain"         # 'plain' | 'rezero'
+    gate: str = "rezero"              # 'none' | 'rezero' (only when block_type == 'rezero')
+    recenter: bool = False            # pre-norm; off is best (Julia findings)
+    branch_init_scale: float = 0.1    # FFN-only weight-init down-scale
+    d_ff: int = 0                     # FFN hidden dim; 0 -> d_ff = d_hidden
+    alpha_lr_mult: float = 5.0        # ReZero alpha gates train at lr * this
     source: str = "audio"             # 'audio' | 'synthetic' (synthetic = plumbing tests)
     train_path: Optional[str] = None
     test_path: Optional[str] = None
@@ -88,6 +99,12 @@ class HpoBase:
         return cls(
             body=e("PHASOR_HPO_BODY", "lca"),
             n_blocks=_i("PHASOR_HPO_N_BLOCKS", 1),
+            block_type=e("PHASOR_HPO_BLOCK_TYPE", "plain"),
+            gate=e("PHASOR_HPO_GATE", "rezero"),
+            recenter=(e("PHASOR_HPO_RECENTER", "").lower() in ("1", "true", "yes")),
+            branch_init_scale=float(e("PHASOR_HPO_BRANCH_INIT_SCALE") or 0.1),
+            d_ff=_i("PHASOR_HPO_D_FF", 0),
+            alpha_lr_mult=float(e("PHASOR_HPO_ALPHA_LR_MULT") or 5.0),
             source=e("PHASOR_HPO_SOURCE", "audio"),
             train_path=e("PHASOR_HPO_TRAIN_PATH") or None,
             test_path=e("PHASOR_HPO_TEST_PATH") or None,
@@ -228,6 +245,13 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
         "frontend": "resonant" if base.source == "audio" else "none",
         "body": base.body,
         "n_blocks": int(base.n_blocks),
+        # Block topology is fixed per study (depth-robust rezero for n_blocks > 1);
+        # the knobs are inert when block_type == 'plain'. Not searched.
+        "block_type": base.block_type,
+        "gate": base.gate,
+        "recenter": bool(base.recenter),
+        "branch_init_scale": float(base.branch_init_scale),
+        "d_ff": int(base.d_ff),
         "n_classes": int(base.n_classes),
         "n_freqs": int(base.n_freqs),
         "downsample_factor": int(base.downsample_factor),
@@ -245,6 +269,7 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
     train_cfg: dict[str, Any] = {
         "batch_size": int(base.batch_size),
         "lr": float(p["lr"]),
+        "alpha_lr_mult": float(base.alpha_lr_mult),
         "weight_decay": float(p["weight_decay"]),
         "epochs": epochs,
         "device": base.device,
