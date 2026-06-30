@@ -9,6 +9,7 @@ checkpoints in the HDF5 schema that Lux can load via julia_parity.
 
 from __future__ import annotations
 
+import copy
 from collections import OrderedDict
 from dataclasses import asdict
 from pathlib import Path
@@ -261,18 +262,26 @@ def _build_lr_scheduler(opt: torch.optim.Optimizer, cfg: TrainConfig,
         opt, T_max=total, eta_min=float(cfg.lr_min))
 
 
-def _early_stop(test_losses: list[float], patience: int, min_delta: float) -> bool:
-    """True if test_loss hasn't improved over the last `patience` epochs.
+def _early_stop(values: list[float], patience: int, min_delta: float,
+                mode: str = "min") -> bool:
+    """True if the monitored metric hasn't improved over the last `patience` epochs.
 
-    Compares the minimum test_loss within the last `patience` epochs against the
-    best test_loss before that window; if the recent window didn't beat it (by
-    more than `min_delta`), the run has plateaued and should stop. Needs more
-    than `patience` observations before it can trigger. `patience <= 0` disables.
+    Compares the best metric value within the last `patience` epochs against the
+    best value before that window; if the recent window didn't beat it (by more
+    than `min_delta`), the run has plateaued and should stop. Needs more than
+    `patience` observations before it can trigger. `patience <= 0` disables.
+
+    `mode="min"` treats lower as better (e.g. test_loss); `mode="max"` treats
+    higher as better (e.g. test_acc).
     """
-    if patience <= 0 or len(test_losses) <= patience:
+    if patience <= 0 or len(values) <= patience:
         return False
-    best_before = min(test_losses[:-patience])
-    recent_best = min(test_losses[-patience:])
+    if mode == "max":
+        best_before = max(values[:-patience])
+        recent_best = max(values[-patience:])
+        return recent_best <= best_before + min_delta
+    best_before = min(values[:-patience])
+    recent_best = min(values[-patience:])
     return recent_best >= best_before - min_delta
 
 
@@ -364,6 +373,9 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
     ckpt_dir = Path(final_save).parent if final_save else None
     meta = {f"cfg.{k}": str(v) for k, v in asdict(run).items()}
     best_acc = float("-inf")
+    best_epoch = 0
+    best_state: Optional[dict] = None
+    track_best = run.train.save_best or run.train.restore_best
 
     history: list[dict] = []
     for epoch in range(1, run.train.epochs + 1):
@@ -405,24 +417,39 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
         print(f"epoch {epoch}: train_loss={train_loss:.4f} train_acc={train_acc:.3f}"
               f" | test_loss={test_loss:.4f} test_acc={test_acc:.3f}")
 
-        if ckpt_dir is not None:
-            if run.train.save_best and test_acc > best_acc:
-                best_acc = test_acc
+        if track_best and test_acc > best_acc:
+            best_acc = test_acc
+            best_epoch = epoch
+            if run.train.save_best and ckpt_dir is not None:
                 save_state(ckpt_dir / "best.h5", schema, metadata=meta)
-            if run.train.checkpoint_every > 0 and epoch % run.train.checkpoint_every == 0:
-                save_state(ckpt_dir / f"ckpt_epoch{epoch}.h5", schema, metadata=meta)
+            if run.train.restore_best:
+                best_state = copy.deepcopy(model.state_dict())
+        if (ckpt_dir is not None and run.train.checkpoint_every > 0
+                and epoch % run.train.checkpoint_every == 0):
+            save_state(ckpt_dir / f"ckpt_epoch{epoch}.h5", schema, metadata=meta)
 
-        if _early_stop([r["test_loss"] for r in history],
-                       run.train.patience, run.train.min_delta):
-            print(f"early stop at epoch {epoch}: test_loss no improvement in "
+        metric = run.train.early_stop_metric
+        mode = "max" if metric == "test_acc" else "min"
+        if _early_stop([r[metric] for r in history],
+                       run.train.patience, run.train.min_delta, mode):
+            print(f"early stop at epoch {epoch}: {metric} no improvement in "
                   f"{run.train.patience} epochs")
             break
+
+    # Restore the peak (best test_acc) weights before the final save so
+    # checkpoint.h5 and the returned model equal the peak, not the last epoch.
+    if run.train.restore_best and best_state is not None:
+        model.load_state_dict(best_state)
+        print(f"restored best weights from epoch {best_epoch} "
+              f"(test_acc={best_acc:.4f})")
 
     if final_save is not None:
         save_state(final_save, schema, metadata=meta)
         print(f"saved checkpoint to {final_save}")
 
-    return {"history": history, "final": history[-1] if history else None}
+    best_row = next((r for r in history if r["epoch"] == best_epoch), None)
+    return {"history": history, "final": history[-1] if history else None,
+            "best": best_row, "best_epoch": best_epoch}
 
 
 # --------------------------------------------------------------------------

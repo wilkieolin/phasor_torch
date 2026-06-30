@@ -112,10 +112,15 @@ class TrainConfig:
     device: str = "auto"                  # 'auto' | 'cpu' | 'cuda' | 'xpu'
     seed: int = 0
     checkpoint_path: Optional[str] = None  # HDF5 path for the FINAL weights (written once at end)
-    # Early stopping: stop if test_loss hasn't improved (decreased by > min_delta)
+    # Early stopping: stop if the monitored metric hasn't improved (by > min_delta)
     # over the last `patience` epochs. 0 disables (the trainer runs all epochs).
+    #   early_stop_metric -> "test_acc" (maximize; default) or "test_loss" (minimize).
+    # test_acc is preferred: test_loss plateaus AFTER test_acc peaks and starts
+    # falling, so a loss-keyed stop wastes epochs past the accuracy peak (verified
+    # on the audio confirm runs — see results / memory notes).
     patience: int = 0
     min_delta: float = 0.0
+    early_stop_metric: str = "test_acc"
     # Cosine LR decay over the whole run, annealing from `lr` to `lr_min`
     # (per optimizer step). Mirrors Julia Args.cosine_schedule / lr_min.
     cosine_schedule: bool = False
@@ -125,8 +130,12 @@ class TrainConfig:
     #                      HPO objective's reported best, unlike the final weights).
     #   checkpoint_every -> write ckpt_epoch{N}.h5 every N epochs (0 = off) for
     #                      weight-trajectory analysis / restart points.
+    #   restore_best    -> after training, reload the best (peak test_acc) weights
+    #                      into the model before the FINAL save, so checkpoint.h5 /
+    #                      the returned model equal the peak, not the last epoch.
     save_best: bool = False
     checkpoint_every: int = 0
+    restore_best: bool = True
 
 
 @dataclass(frozen=True)

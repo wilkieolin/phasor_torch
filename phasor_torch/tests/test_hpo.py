@@ -229,6 +229,20 @@ def test_early_stop_min_delta():
     assert _early_stop(losses, patience=3, min_delta=0.0) is False
 
 
+def test_early_stop_max_mode():
+    from phasor_torch.train import _early_stop
+    # test_acc (maximize): peak 0.80 at epoch 3, last 3 never beat it -> stop.
+    accs = [0.50, 0.70, 0.80, 0.79, 0.78, 0.80]
+    assert _early_stop(accs, patience=3, min_delta=0.0, mode="max") is True
+    # still climbing -> hold.
+    rising = [0.50, 0.70, 0.80, 0.81, 0.82, 0.83]
+    assert _early_stop(rising, patience=3, min_delta=0.0, mode="max") is False
+    # gains below min_delta count as no improvement -> stop.
+    tiny = [0.50, 0.70, 0.80, 0.801, 0.802, 0.803]
+    assert _early_stop(tiny, patience=3, min_delta=0.01, mode="max") is True
+    assert _early_stop(tiny, patience=3, min_delta=0.0, mode="max") is False
+
+
 # --- cosine LR schedule ----------------------------------------------------
 
 

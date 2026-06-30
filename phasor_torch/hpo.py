@@ -70,12 +70,14 @@ class HpoBase:
     test_limit: Optional[int] = None
     epochs_min: int = 30              # epochs is a swept dim; bounds come from env
     epochs_max: int = 80
-    patience: int = 6                 # early-stop a trial after N epochs w/o test_loss improvement
+    patience: int = 6                 # early-stop a trial after N epochs w/o metric improvement
     min_delta: float = 0.0
+    early_stop_metric: str = "test_acc"   # "test_acc" (maximize) | "test_loss" (minimize)
     cosine_schedule: bool = False     # cosine LR decay (lr -> lr_min) over each trial
     lr_min: float = 1e-6
     save_best: bool = True            # write best.h5 per trial (cheap; matches reported best test_acc)
     checkpoint_every: int = 0         # periodic ckpt_epoch{N}.h5 per trial (0 = off)
+    restore_best: bool = True         # final checkpoint.h5 == peak test_acc weights, not last epoch
     seed: int = 0
     outdir: str = "hpo_runs"
     # synthetic-only fallbacks (used when source == 'synthetic', for fast tests)
@@ -119,10 +121,12 @@ class HpoBase:
             epochs_max=_i("PHASOR_HPO_EPOCHS_MAX", 80),
             patience=_i("PHASOR_HPO_PATIENCE", 6),
             min_delta=float(e("PHASOR_HPO_MIN_DELTA") or 0.0),
+            early_stop_metric=e("PHASOR_HPO_EARLY_STOP_METRIC", "test_acc"),
             cosine_schedule=(e("PHASOR_HPO_COSINE", "").lower() in ("1", "true", "yes")),
             lr_min=float(e("PHASOR_HPO_LR_MIN") or 1e-6),
             save_best=(e("PHASOR_HPO_SAVE_BEST", "1").lower() not in ("0", "false", "no")),
             checkpoint_every=_i("PHASOR_HPO_CHECKPOINT_EVERY", 0),
+            restore_best=(e("PHASOR_HPO_RESTORE_BEST", "1").lower() not in ("0", "false", "no")),
             seed=_i("PHASOR_HPO_SEED", 0),
             outdir=e("PHASOR_HPO_OUTDIR", "hpo_runs"),
         )
@@ -276,10 +280,12 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
         "seed": int(base.seed),
         "patience": int(base.patience),
         "min_delta": float(base.min_delta),
+        "early_stop_metric": str(base.early_stop_metric),
         "cosine_schedule": bool(base.cosine_schedule),
         "lr_min": float(base.lr_min),
         "save_best": bool(base.save_best),
         "checkpoint_every": int(base.checkpoint_every),
+        "restore_best": bool(base.restore_best),
     }
 
     if base.source == "audio":

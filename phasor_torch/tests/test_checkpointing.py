@@ -60,3 +60,25 @@ def test_hpo_checkpoint_defaults():
     run = hpo.point_to_runconfig(point, base)
     assert run.train.save_best is True        # best.h5 on by default for HPO trials
     assert run.train.checkpoint_every == 0    # periodic off by default
+    assert run.train.early_stop_metric == "test_acc"   # acc-keyed early stop
+    assert run.train.restore_best is True              # final == peak weights
+
+
+def test_restore_best_makes_final_equal_best(tmp_path):
+    """With restore_best, checkpoint.h5 (final) reloads the peak weights == best.h5."""
+    import torch
+    from phasor_torch.train import build_model, forward_model
+    from phasor_torch.weights import load_state
+
+    summary, _ = _run(tmp_path, save_best=True, restore_best=True)
+    assert (tmp_path / "best.h5").exists()
+    assert summary["best_epoch"] >= 1
+
+    cfg = ModelConfig(frontend="none", body="lsa", d_hidden=32, n_heads=4,
+                      in_dims=32, n_classes=10, readout="ssm")
+    x = torch.rand(32, 12, 4) * 2 - 1
+    _, sb = build_model(cfg, generator=torch.Generator().manual_seed(1))
+    load_state(str(tmp_path / "best.h5"), sb)
+    _, sf = build_model(cfg, generator=torch.Generator().manual_seed(2))
+    load_state(str(tmp_path / "checkpoint.h5"), sf)
+    assert torch.allclose(forward_model(sb, x), forward_model(sf, x), atol=1e-6)
