@@ -31,6 +31,7 @@ from .layers import (
     PhasorDense,
     PhasorLCA,
     PhasorLSA,
+    PhasorTransformerBlock,
     ResonantSTFT,
     SSMReadout,
     downsample_time,
@@ -112,24 +113,42 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
             )
         raise ValueError(f"unknown body kind {cfg.body!r}")
 
-    # Stacked (body -> dense) blocks. n_blocks == 1 keeps the original keys
-    # ("body"/"dense") so existing checkpoints/parity/tests are unchanged;
-    # n_blocks > 1 uses indexed keys ("body0"/"dense0"/"body1"/...). The
-    # generator draw order (per block: attn then dense) matches the old single-
-    # block code, so n_blocks == 1 is bit-identical to before.
+    # Stacked blocks. n_blocks == 1 keeps the original keys so existing
+    # checkpoints/parity/tests are unchanged; n_blocks > 1 uses indexed keys.
+    #
+    # block_type == "plain"  -> (body -> dense) per block ("body"/"dense" or
+    #   "body0"/"dense0"/...). Generator draw order (attn then dense) matches
+    #   the old single-block code, so n_blocks == 1 is bit-identical to before.
+    # block_type == "rezero" -> each block is a single PhasorTransformerBlock
+    #   (residual-wrapped attention + FFN, ReZero gated) keyed "block"/"block0".
     n_blocks = max(1, int(cfg.n_blocks))
     blocks: list[tuple[str, nn.Module]] = []
-    for i in range(n_blocks):
-        suffix = "" if n_blocks == 1 else str(i)
-        attn = _make_body()
-        dense = PhasorDense(
-            cfg.d_hidden, cfg.d_hidden, activation=nn.Identity(),
-            use_bias=False, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
-            spk_args=spk, generator=generator,
-        )
-        if attn is not None:
-            blocks.append((f"body{suffix}", attn))
-        blocks.append((f"dense{suffix}", dense))
+    if cfg.block_type == "rezero":
+        if cfg.body == "none":
+            raise ValueError("block_type='rezero' requires body in ('lsa', 'lca')")
+        for i in range(n_blocks):
+            suffix = "" if n_blocks == 1 else str(i)
+            attn = _make_body()
+            block = PhasorTransformerBlock(
+                cfg.d_hidden, attn, d_ff=cfg.d_ff, gate=cfg.gate,
+                branch_init_scale=cfg.branch_init_scale, recenter=cfg.recenter,
+                spk_args=spk, generator=generator,
+            )
+            blocks.append((f"block{suffix}", block))
+    elif cfg.block_type == "plain":
+        for i in range(n_blocks):
+            suffix = "" if n_blocks == 1 else str(i)
+            attn = _make_body()
+            dense = PhasorDense(
+                cfg.d_hidden, cfg.d_hidden, activation=nn.Identity(),
+                use_bias=False, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
+                spk_args=spk, generator=generator,
+            )
+            if attn is not None:
+                blocks.append((f"body{suffix}", attn))
+            blocks.append((f"dense{suffix}", dense))
+    else:
+        raise ValueError(f"unknown block_type {cfg.block_type!r}")
 
     if cfg.readout == "ssm":
         readout = SSMReadout(
@@ -203,6 +222,28 @@ def forward_model(schema: OrderedDict[str, nn.Module], x: Tensor,
 # --------------------------------------------------------------------------
 # Training loop
 # --------------------------------------------------------------------------
+
+
+def build_optimizer(model: nn.Module, cfg: TrainConfig) -> torch.optim.Optimizer:
+    """Adam over the model params, with ReZero `alpha` gates on a higher LR.
+
+    ReZero alphas warm up from ~0 and train at `lr * alpha_lr_mult` (the Julia
+    5x rule). When the model has no alpha params (e.g. block_type='plain' or
+    gate='none'), this is a single-group Adam identical to the old behavior.
+    CosineAnnealingLR scales each group's base_lr independently, so the ratio
+    is preserved under the schedule.
+    """
+    alpha_params = [p for n, p in model.named_parameters()
+                    if n.endswith("alpha") and p.requires_grad]
+    other_params = [p for n, p in model.named_parameters()
+                    if not n.endswith("alpha") and p.requires_grad]
+    if alpha_params:
+        return torch.optim.Adam(
+            [{"params": other_params, "lr": cfg.lr},
+             {"params": alpha_params, "lr": cfg.lr * float(cfg.alpha_lr_mult)}],
+            weight_decay=cfg.weight_decay,
+        )
+    return torch.optim.Adam(other_params, lr=cfg.lr, weight_decay=cfg.weight_decay)
 
 
 def _build_lr_scheduler(opt: torch.optim.Optimizer, cfg: TrainConfig,
@@ -312,8 +353,7 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
     model, schema = build_model(run.model, generator=g)
     model = model.to(device)
 
-    opt = torch.optim.Adam(model.parameters(), lr=run.train.lr,
-                           weight_decay=run.train.weight_decay)
+    opt = build_optimizer(model, run.train)
     scheduler = _build_lr_scheduler(opt, run.train, len(train_loader))
 
     ds = run.model.downsample_factor if run.model.frontend == "resonant" else 1

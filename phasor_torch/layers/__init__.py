@@ -4,6 +4,11 @@ from .codebook import Codebook
 from .phasor_dense import PhasorDense
 from .phasor_lca import PhasorLCA
 from .phasor_lsa import PhasorLSA
+from .phasor_residual import (
+    PhaseRecenter,
+    PhasorResidual,
+    PhasorTransformerBlock,
+)
 from .resonant_stft import (
     ResonantSTFT,
     downsample_time,
@@ -15,9 +20,12 @@ from .ssm_readout import SSMReadout
 
 __all__ = [
     "Codebook",
+    "PhaseRecenter",
     "PhasorDense",
     "PhasorLCA",
     "PhasorLSA",
+    "PhasorResidual",
+    "PhasorTransformerBlock",
     "ResonantSTFT",
     "SSMReadout",
     "downsample_time",

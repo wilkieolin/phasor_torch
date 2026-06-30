@@ -92,6 +92,9 @@ class PhasorDense(nn.Module):
       use_bias: whether to learn complex bias as (bias_real, bias_imag).
       init_mode: 'default' (log(0.2) per channel) or 'hippo' (HiPPO-LegS).
       init_log_neg_lambda: optional per-channel override (float or 1-D tensor).
+      init_weight_scale: post-glorot multiplier on `weight` only (bias
+                   untouched). Mirrors Julia's branch_init_scale FFN lever.
+                   Default 1.0 (no change).
       spk_args: oscillator config; only `t_period` is used (omega = 2pi/t_period).
       generator: optional torch.Generator for deterministic init.
     """
@@ -105,6 +108,7 @@ class PhasorDense(nn.Module):
         use_bias: bool = True,
         init_mode: str = "default",
         init_log_neg_lambda: Optional[float | Tensor] = None,
+        init_weight_scale: float = 1.0,
         spk_args: Optional[SpikingArgs] = None,
         generator: torch.Generator | None = None,
     ):
@@ -118,6 +122,12 @@ class PhasorDense(nn.Module):
 
         # ---- parameters -----------------------------------------------
         weight = _glorot_uniform(self.out_dims, self.in_dims, generator)
+        # Down-scale the glorot init toward a near-identity branch. Mirrors
+        # Julia's `init_weight = branch_init_scale * glorot_uniform` (the FFN
+        # branch lever in PhasorTransformerBlock, src/ssm.jl:1110). The bias is
+        # NOT scaled — only the linear weight. Default 1.0 = no change.
+        if init_weight_scale != 1.0:
+            weight = weight * float(init_weight_scale)
         self.weight = nn.Parameter(weight)
 
         if init_log_neg_lambda is None:

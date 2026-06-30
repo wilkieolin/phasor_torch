@@ -46,9 +46,22 @@ class ModelConfig:
     n_heads: int = 4
     n_anchors: int = 32         # only used when body == 'lca'
     init_scale: float = 3.0
-    # Number of stacked (body -> dense) blocks between the input embedding and
-    # readout. 1 = the canonical single-block chain (unchanged behavior).
+    # Number of stacked blocks between the input embedding and readout. 1 = the
+    # canonical single-block chain (unchanged behavior).
     n_blocks: int = 1
+
+    # Block topology:
+    #   'plain'  -> the original (body -> dense) stacking (unchanged default).
+    #   'rezero' -> each block is a PhasorTransformerBlock (residual-wrapped
+    #               attention + FFN with a ReZero gate), making deep stacks
+    #               trainable. Requires body in ('lsa', 'lca').
+    block_type: Literal["plain", "rezero"] = "plain"
+    # ReZero block knobs (only used when block_type == 'rezero'). Defaults match
+    # the recommended 'plain rezero' regime from the Julia findings.
+    gate: Literal["none", "rezero"] = "rezero"
+    recenter: bool = False
+    branch_init_scale: float = 0.1   # FFN-only weight-init down-scale
+    d_ff: int = 0                    # FFN hidden dim; 0 -> d_ff = d_hidden
 
     # Readout: 'codebook' | 'ssm'.
     readout: Literal["codebook", "ssm"] = "ssm"
@@ -90,6 +103,10 @@ class TrainConfig:
     batch_size: int = 32
     epochs: int = 5
     lr: float = 3e-4
+    # ReZero alpha gates warm up from ~0 and benefit from a higher LR than the
+    # rest of the network. When the model has any `alpha` params, they train at
+    # `lr * alpha_lr_mult`; otherwise this is inert. Matches the Julia 5x rule.
+    alpha_lr_mult: float = 5.0
     weight_decay: float = 0.0
     log_every: int = 0                    # 0 disables intra-epoch logging
     device: str = "auto"                  # 'auto' | 'cpu' | 'cuda' | 'xpu'

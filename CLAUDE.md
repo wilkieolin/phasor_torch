@@ -31,6 +31,7 @@ python julia_parity/generate_parity_phasor_dense.py
 python julia_parity/generate_parity_readouts.py
 python julia_parity/generate_parity_phasor_lsa.py
 python julia_parity/generate_parity_phasor_lca.py
+python julia_parity/generate_parity_phasor_residual.py   # PhasorTransformerBlock
 python julia_parity/train_and_save_for_julia.py     # Stage 7 end-to-end fixture
 
 # Run Julia parity verifiers (one-time: instantiate)
@@ -39,6 +40,7 @@ julia --project=julia_parity julia_parity/verify_phasor_dense.jl
 julia --project=julia_parity julia_parity/verify_readouts.jl
 julia --project=julia_parity julia_parity/verify_phasor_lsa.jl
 julia --project=julia_parity julia_parity/verify_phasor_lca.jl
+julia --project=julia_parity julia_parity/verify_phasor_residual.jl
 julia --project=julia_parity julia_parity/verify_end_to_end.jl
 ```
 
@@ -68,8 +70,13 @@ For phase inputs, the kernel is built **without** the `B = (A-1)/k` gain term an
 | `SSMReadout` | `phasor_torch/layers/ssm_readout.py` | 3D Phase → temporal-window similarity |
 | `PhasorLSA` | `phasor_torch/layers/phasor_lsa.py` | 2D / 3D Phase via head-axis similarity_outer_heads |
 | `PhasorLCA` | `phasor_torch/layers/phasor_lca.py` | 2D / 3D Phase via anchor bank (Hopfield-style) |
+| `PhaseRecenter` / `PhasorResidual` / `PhasorTransformerBlock` | `phasor_torch/layers/phasor_residual.py` | depth-robust ReZero residual stack around LSA/LCA + FFN |
 
 LSA/LCA use bias-free `PhasorDense` projections internally (`q_proj`, `k_proj`, `v_proj` for LSA; `k_proj`, `v_proj` for LCA). LCA additionally carries a trainable `anchors` `(d_model, n_anchors)` Phase parameter.
+
+#### Depth-robust stacking (ReZero blocks)
+
+Stacked phase attention only trains at depth when each attention sublayer is wrapped in a residual with a **ReZero gate** (learnable scalar `alpha` init ≈ 0 → exact identity at init). `PhasorTransformerBlock` = `PhasorResidual(attn) → PhasorResidual(FFN)`, combined via `v_bind` (phase addition with a straight-through wrap; see `primitives.v_bind`/`remap_phase`). The residual combine, *not* weight down-scaling, is what makes attention stack past depth ~2. Enable via `ModelConfig.block_type="rezero"` (coexists with the default `"plain"` `body→dense` stacking); knobs: `gate`, `recenter` (default off — plain rezero is best), `branch_init_scale` (FFN-only), `d_ff`. ReZero `alpha` params train at `lr * TrainConfig.alpha_lr_mult` (5×) via a dedicated optimizer group (`train.build_optimizer`). Ported from Julia `src/ssm.jl`; see `results/lsa_lca_residual/PHASOR_TORCH_PORT.md`.
 
 ### Data flow (reference topology, mirrors `scripts/local_attention_compare.jl:245`)
 

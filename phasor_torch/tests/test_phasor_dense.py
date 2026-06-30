@@ -34,6 +34,17 @@ def test_construction_default():
                           torch.full_like(layer.log_neg_lambda, math.log(0.2)))
 
 
+def test_init_weight_scale_scales_weight_only():
+    g1 = torch.Generator().manual_seed(7)
+    g2 = torch.Generator().manual_seed(7)
+    base = PhasorDense(8, 4, generator=g1)
+    scaled = PhasorDense(8, 4, init_weight_scale=0.1, generator=g2)
+    assert torch.allclose(scaled.weight, 0.1 * base.weight, atol=1e-7)
+    # bias is NOT scaled (stays at the complex-ones default).
+    assert torch.allclose(scaled.bias_real, base.bias_real)
+    assert torch.allclose(scaled.bias_imag, base.bias_imag)
+
+
 def test_construction_no_bias():
     layer = PhasorDense(8, 4, use_bias=False)
     assert layer.bias_real is None

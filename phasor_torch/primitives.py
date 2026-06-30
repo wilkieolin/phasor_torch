@@ -104,6 +104,18 @@ def remap_phase(x: Tensor) -> Tensor:
     return y
 
 
+def v_bind(x: Tensor, y: Tensor) -> Tensor:
+    """Phase-domain binding (addition), wrapped to [-1, 1].
+
+    Mirrors Julia src/vsa.jl:19 (`v_bind(x, y) = remap_phase(x .+ y)`). The
+    wrap is straight-through (see `remap_phase`), so the gradient is identity
+    to *both* operands and the identity element is `y = 0` (a zero branch
+    output passes the skip through unchanged). This is the residual-combine
+    operator for the phasor transformer blocks.
+    """
+    return remap_phase(x + y)
+
+
 def similarity(x: Tensor, y: Tensor, dim: int = 0) -> Tensor:
     """Cosine of phase difference, averaged along `dim`.
 
