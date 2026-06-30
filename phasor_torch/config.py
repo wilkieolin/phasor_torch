@@ -63,6 +63,14 @@ class ModelConfig:
     branch_init_scale: float = 0.1   # FFN-only weight-init down-scale
     d_ff: int = 0                    # FFN hidden dim; 0 -> d_ff = d_hidden
 
+    # Complex bias on the chain's PhasorDense layers (input embedding, body dense,
+    # and LSA/LCA q/k/v projections). Bias inits to 1+0i, shifting Z off the
+    # complex origin -> tames the ~1/|z|^2 angle-gradient blow-up that makes deep
+    # phase stacks explode (arXiv:2207.08953). Default False to preserve parity
+    # with the bias-free reference chain; enable for deep (n_blocks > 1) studies.
+    # (The rezero block's FFN denses already use bias regardless of this flag.)
+    use_bias: bool = False
+
     # Readout: 'codebook' | 'ssm'.
     readout: Literal["codebook", "ssm"] = "ssm"
     n_classes: int = 10

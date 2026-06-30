@@ -62,6 +62,18 @@ def test_hpo_checkpoint_defaults():
     assert run.train.checkpoint_every == 0    # periodic off by default
     assert run.train.early_stop_metric == "test_acc"   # acc-keyed early stop
     assert run.train.restore_best is True              # final == peak weights
+    assert run.model.use_bias is False                 # bias off by default
+
+
+def test_hpo_use_bias_threads_from_base():
+    from phasor_torch import hpo
+    point = {"lr": 3e-4, "d_hidden_i": 0, "n_heads_i": 1, "init_scale": 3.0,
+             "readout_frac": 0.25, "weight_decay": 1e-8, "epochs": 1}
+    on = hpo.point_to_runconfig(point, hpo.HpoBase(body="lsa", source="synthetic",
+                                                   use_bias=True))
+    assert on.model.use_bias is True
+    off = hpo.point_to_runconfig(point, hpo.HpoBase(body="lsa", source="synthetic"))
+    assert off.model.use_bias is False
 
 
 def test_restore_best_makes_final_equal_best(tmp_path):

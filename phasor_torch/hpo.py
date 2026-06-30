@@ -58,6 +58,7 @@ class HpoBase:
     branch_init_scale: float = 0.1    # FFN-only weight-init down-scale
     d_ff: int = 0                     # FFN hidden dim; 0 -> d_ff = d_hidden
     alpha_lr_mult: float = 5.0        # ReZero alpha gates train at lr * this
+    use_bias: bool = False            # complex bias (1+0i) on input/dense/proj; on for deep stacks
     source: str = "audio"             # 'audio' | 'synthetic' (synthetic = plumbing tests)
     train_path: Optional[str] = None
     test_path: Optional[str] = None
@@ -107,6 +108,7 @@ class HpoBase:
             branch_init_scale=float(e("PHASOR_HPO_BRANCH_INIT_SCALE") or 0.1),
             d_ff=_i("PHASOR_HPO_D_FF", 0),
             alpha_lr_mult=float(e("PHASOR_HPO_ALPHA_LR_MULT") or 5.0),
+            use_bias=(e("PHASOR_HPO_USE_BIAS", "").lower() in ("1", "true", "yes")),
             source=e("PHASOR_HPO_SOURCE", "audio"),
             train_path=e("PHASOR_HPO_TRAIN_PATH") or None,
             test_path=e("PHASOR_HPO_TEST_PATH") or None,
@@ -256,6 +258,7 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
         "recenter": bool(base.recenter),
         "branch_init_scale": float(base.branch_init_scale),
         "d_ff": int(base.d_ff),
+        "use_bias": bool(base.use_bias),
         "n_classes": int(base.n_classes),
         "n_freqs": int(base.n_freqs),
         "downsample_factor": int(base.downsample_factor),

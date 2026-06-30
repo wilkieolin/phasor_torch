@@ -94,7 +94,7 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
 
     input_layer = PhasorDense(
         embed_in, cfg.d_hidden, normalize_to_unit_circle,
-        use_bias=False, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
+        use_bias=cfg.use_bias, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
         spk_args=spk, generator=generator,
     )
     def _make_body() -> Optional[nn.Module]:
@@ -104,13 +104,14 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
             return PhasorLSA(
                 cfg.d_hidden, cfg.d_hidden, n_heads=cfg.n_heads,
                 init_scale=cfg.init_scale, init_mode=cfg.init_mode,
-                spk_args=spk, generator=generator,
+                use_bias=cfg.use_bias, spk_args=spk, generator=generator,
             )
         if cfg.body == "lca":
             return PhasorLCA(
                 cfg.d_hidden, cfg.d_hidden, n_heads=cfg.n_heads,
                 n_anchors=cfg.n_anchors, init_scale=cfg.init_scale,
-                init_mode=cfg.init_mode, spk_args=spk, generator=generator,
+                init_mode=cfg.init_mode, use_bias=cfg.use_bias,
+                spk_args=spk, generator=generator,
             )
         raise ValueError(f"unknown body kind {cfg.body!r}")
 
@@ -142,7 +143,7 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
             attn = _make_body()
             dense = PhasorDense(
                 cfg.d_hidden, cfg.d_hidden, activation=nn.Identity(),
-                use_bias=False, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
+                use_bias=cfg.use_bias, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
                 spk_args=spk, generator=generator,
             )
             if attn is not None:

@@ -211,3 +211,39 @@ def test_checkpoint_round_trip(tmp_path):
     y_b = forward_model(schema_b, x)
     y_c = forward_model(schema_c, x)
     assert torch.allclose(y_b, y_c, atol=1e-6)
+
+
+# --------------------------------------------------------------------------
+# use_bias threading through build_model
+# --------------------------------------------------------------------------
+
+
+def test_use_bias_threads_to_input_dense_and_projections():
+    from phasor_torch.layers.phasor_lsa import PhasorLSA
+    g = torch.Generator().manual_seed(0)
+    on = ModelConfig(frontend="none", body="lsa", d_hidden=16, n_heads=2,
+                     in_dims=16, n_classes=4, readout="ssm", use_bias=True)
+    _, s = build_model(on, generator=g)
+    assert s["input"].use_bias and s["input"].bias_real is not None
+    assert isinstance(s["body"], PhasorLSA)
+    assert s["body"].q_proj.use_bias and s["body"].k_proj.use_bias and s["body"].v_proj.use_bias
+    assert s["dense"].use_bias
+
+    off = ModelConfig(frontend="none", body="lsa", d_hidden=16, n_heads=2,
+                      in_dims=16, n_classes=4, readout="ssm")   # default False
+    _, s0 = build_model(off, generator=torch.Generator().manual_seed(0))
+    assert not s0["input"].use_bias and s0["input"].bias_real is None
+    assert not s0["body"].q_proj.use_bias
+
+
+def test_use_bias_rezero_depth2_biases_attn_and_ffn():
+    g = torch.Generator().manual_seed(1)
+    cfg = ModelConfig(frontend="none", body="lca", d_hidden=16, n_heads=2,
+                      n_anchors=8, in_dims=16, n_classes=4, readout="ssm",
+                      n_blocks=2, block_type="rezero", use_bias=True)
+    _, s = build_model(cfg, generator=g)
+    assert "block0" in s and "block1" in s
+    attn = s["block0"].attn_res.sublayer          # PhasorLCA
+    assert attn.k_proj.use_bias and attn.v_proj.use_bias
+    ffn = s["block0"].ffn_res.sublayer            # _PhasorFFN (biased regardless)
+    assert ffn.fc1.use_bias and ffn.fc2.use_bias
