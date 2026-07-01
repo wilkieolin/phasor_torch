@@ -15,6 +15,14 @@ sweep. Configure via the same ``PHASOR_HPO_*`` env vars (do NOT set
   PHASOR_CONFIRM_TOPK     number of top configs to confirm (default 8)
   PHASOR_CONFIRM_EPOCHS   optional override of each config's epoch count
 
+Each rank writes, under ``<outdir>/confirm_<rank>_<hash>/``:
+  point.json     the confirmed ConfigSpace point
+  checkpoint.h5  deployed weights (== peak test_acc when restore_best is on)
+  best.h5        peak test_acc weights (when save_best is on)
+  history.json   full per-epoch train/test loss+acc + best_epoch + summary
+                 -> curves never need reconstructing from the interleaved PBS
+                 stdout (each rank owns its own file).
+
 Run (in the phasor_hpo env, under PBS): see scripts/confirm_top.pbs.
 """
 
@@ -72,6 +80,22 @@ def main() -> int:
     hist = result.get("history") or []
     best = max((float(r["test_acc"]) for r in hist), default=0.0)
     final = float((result.get("final") or {}).get("test_acc", 0.0))
+
+    # Persist the full per-epoch history so curves never need reconstructing from
+    # the interleaved multi-rank PBS stdout. Each rank writes its own file, so
+    # there is no interleaving. Mirrors hpo.objective's per-trial history.json.
+    with open(os.path.join(outdir, "history.json"), "w") as fh:
+        json.dump({
+            "rank": rank,
+            "point": point,
+            "explore_objective": float(top[rank]["objective"]),
+            "full_best_test_acc": best,
+            "full_final_test_acc": final,
+            "best_epoch": result.get("best_epoch"),
+            "epochs_run": len(hist),
+            "history": hist,   # per-epoch train_loss/train_acc/test_loss/test_acc
+        }, fh, indent=2)
+
     print(f"[confirm rank {rank}] explore_obj={top[rank]['objective']} "
           f"full_best_test_acc={best:.4f} full_final_test_acc={final:.4f} "
           f"epochs_run={len(hist)} dir={outdir}", flush=True)

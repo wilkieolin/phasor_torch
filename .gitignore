@@ -21,6 +21,11 @@ ytopt.log
 # local run outputs + the convenience symlink to them
 hpo_runs/
 hpo_runs
+# full-data confirmation outputs + the convenience symlink to them
+hpo_confirm/
+hpo_confirm
+# PBS job stdout files (<name>.o<jobid>, e.g. phasor_confirm.o8555898)
+*.o[0-9]*
 # libEnsemble run artifacts
 ensemble.log
 libE_stats.txt
