@@ -25,6 +25,36 @@ def test_single_block_keys_unchanged():
     assert list(schema.keys()) == ["input", "body", "dense", "readout"]
 
 
+def test_config_b_defaults_wired():
+    """Config-B: uniform (lambda=-0.2) Q/K/V read heads, hippo FFN tape,
+    recenter pre-norm on, hippo input embedding (long tape)."""
+    import math
+    cfg = _cfg("lca", n_blocks=1, block_type="rezero")
+    # confirm the new defaults are the config-B values
+    assert cfg.qkv_init_mode == "default"
+    assert cfg.ffn_init_mode == "hippo"
+    assert cfg.recenter is True
+    _, schema = build_model(cfg)
+    block = schema["block"]
+    # attention K/V projections: uniform lambda init -> constant log(0.2)
+    kproj = block.attn_res.sublayer.k_proj
+    assert torch.allclose(kproj.log_neg_lambda,
+                          torch.full_like(kproj.log_neg_lambda, math.log(0.2)),
+                          atol=1e-6)
+    # FFN fc1: hippo tape -> NOT constant, spans 1/64 .. 2
+    fc1 = block.ffn_res.sublayer.fc1
+    lam_mag = torch.exp(fc1.log_neg_lambda)
+    assert lam_mag.std() > 0.0
+    assert torch.isclose(lam_mag.min(), torch.tensor(1.0 / 64.0), atol=1e-4)
+    assert torch.isclose(lam_mag.max(), torch.tensor(2.0), atol=1e-4)
+    # recenter pre-norm present on both residual branches (skip untouched)
+    assert block.attn_res.recenter is not None
+    assert block.ffn_res.recenter is not None
+    # input embedding stays hippo (long tape)
+    inp_lam = torch.exp(schema["input"].log_neg_lambda)
+    assert torch.isclose(inp_lam.min(), torch.tensor(1.0 / 64.0), atol=1e-4)
+
+
 def test_stacked_block_keys_and_forward():
     _, schema = build_model(_cfg("lca", n_blocks=2))
     assert list(schema.keys()) == [

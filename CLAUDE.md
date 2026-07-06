@@ -76,7 +76,18 @@ LSA/LCA use bias-free `PhasorDense` projections internally (`q_proj`, `k_proj`, 
 
 #### Depth-robust stacking (ReZero blocks)
 
-Stacked phase attention only trains at depth when each attention sublayer is wrapped in a residual with a **ReZero gate** (learnable scalar `alpha` init ≈ 0 → exact identity at init). `PhasorTransformerBlock` = `PhasorResidual(attn) → PhasorResidual(FFN)`, combined via `v_bind` (phase addition with a straight-through wrap; see `primitives.v_bind`/`remap_phase`). The residual combine, *not* weight down-scaling, is what makes attention stack past depth ~2. Enable via `ModelConfig.block_type="rezero"` (coexists with the default `"plain"` `body→dense` stacking); knobs: `gate`, `recenter` (default off — plain rezero is best), `branch_init_scale` (FFN-only), `d_ff`. ReZero `alpha` params train at `lr * TrainConfig.alpha_lr_mult` (5×) via a dedicated optimizer group (`train.build_optimizer`). Ported from Julia `src/ssm.jl`; see `results/lsa_lca_residual/PHASOR_TORCH_PORT.md`.
+Stacked phase attention only trains at depth when each attention sublayer is wrapped in a residual with a **ReZero gate** (learnable scalar `alpha` init ≈ 0 → exact identity at init). `PhasorTransformerBlock` = `PhasorResidual(attn) → PhasorResidual(FFN)`, combined via `v_bind` (phase addition with a straight-through wrap; see `primitives.v_bind`/`remap_phase`). The residual combine, *not* weight down-scaling, is what makes attention stack past depth ~2. Enable via `ModelConfig.block_type="rezero"` (coexists with the default `"plain"` `body→dense` stacking); knobs: `gate`, `recenter`, `branch_init_scale` (FFN-only), `d_ff`, `qkv_init_mode`, `ffn_init_mode`. ReZero `alpha` params train at `lr * TrainConfig.alpha_lr_mult` (5×) via a dedicated optimizer group (`train.build_optimizer`). Ported from Julia `src/ssm.jl`; see `results/lsa_lca_residual/PHASOR_TORCH_PORT.md`.
+
+**Config-B defaults (from the PhasorNetworks.jl MQAR / init-placement ablation).** The recommended attention-block config, now the package default:
+
+| axis | Q/K/V read heads | FFN (residual stream) | ModelConfig field |
+|---|---|---|---|
+| λ init | `default` (uniform, τ=5) | `hippo` (long tape, τ∈[0.5,64]) | `qkv_init_mode="default"`, `ffn_init_mode="hippo"` |
+| complex bias | `use_bias=False` (gate handles origin) | `use_bias=True` | (fixed in layers) |
+| ReZero | `gate="rezero"`, α₀=0.1, α-lr ×5 | same | `gate`, `alpha_lr_mult` |
+| phase recenter | `recenter=True` (pre-norm, skip untouched) | same | `recenter=True` |
+
+Two enabling mechanisms make this coherent: (1) the near-origin **gradient gate** in `complex_to_angle` (backward gated at `|z|<1e-3`; see autograd note below) makes hippo/uniform projections trainable without the `1/|z|²` NaN blow-up regardless of origin proximity; (2) the **`:hippo` redefinition** to a genuine long tape (`kernels.HIPPO_TAU_MIN=0.5`, `HIPPO_TAU_MAX=64`; λ log-spaced over τ∈[0.5,64], N-independent) makes the FFN memory tape actually reach. HiPPO in the read heads *hurts* long-range routing — keep them uniform. The input embedding stays `hippo` (long tape) and is exempt from the audio RNN_KW preset (only an explicit `init_log_neg_lambda` overrides it).
 
 ### Data flow (reference topology, mirrors `scripts/local_attention_compare.jl:245`)
 
@@ -151,7 +162,7 @@ For 3D IO tensors saved as `(C, L, B)` in PyTorch, the Julia loader reads them a
 
 PyTorch's autograd is generally fine; only add a custom Function in two cases:
 
-1. **NaN guards**: PyTorch's native autograd for `torch.angle` / `1/|z|` produces NaN at `z=0` and poisons sibling cotangents via `0*NaN = NaN`. Already handled in `_ComplexToAngle` and `_NormalizeHard`. Add a similar shim if you port any other phase-domain primitive with a singularity.
+1. **NaN guards + near-origin gradient gate**: PyTorch's native autograd for `torch.angle` / `1/|z|` produces NaN at `z=0` and poisons sibling cotangents via `0*NaN = NaN`. Already handled in `_ComplexToAngle` and `_NormalizeHard`. `_ComplexToAngle` additionally **gates its backward** at `|z| < grad_threshold` (default `1e-3`): the `dz = ȳ·i·z/(π·|z|²)` singularity blows up when an SSM/attention phasor sum cancels to `|z|~1e-9` (the depth-2 LCA NaN blow-up — traced to the first block's K/V projections). A collapsed phasor carries no useful phase, so its cotangent is zeroed, capping `|dz|` at `~|ȳ|/(π·grad_threshold)`. The **forward is unchanged** (only `|z|<1e-10` zeroed, matching Julia) → parity-safe. Mirrors Julia `src/domains.jl:65` (commit `ae00ded`). `grad_threshold` and `threshold` are decoupled kwargs. Add a similar shim if you port any other phase-domain primitive with a singularity.
 2. **Shape blowup**: if a forward implementation would materialize an `O(D·M·N·B)` intermediate that the closed-form rrule can avoid. Already handled in `_SimilarityOuterCanonicalComplex` (the LSA/LCA inner product). Profile first; only port a closed-form rrule if memory is actually a problem.
 
 Skip the autograd.Function for everything else. PyTorch's tape doesn't suffer Zygote's `ForwardDiff.Dual` blowup, so most of the Julia rrules (`_exp_kdt`, `angle_to_complex`, soft normalize, `Phase` constructor) don't need PyTorch equivalents.

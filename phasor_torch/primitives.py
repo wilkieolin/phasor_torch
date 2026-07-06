@@ -39,16 +39,26 @@ def angle_to_complex(x: Tensor) -> Tensor:
 
 
 class _ComplexToAngle(torch.autograd.Function):
-    """Backward-safe angle(z)/pi with sub-threshold cotangent zeroed.
+    """angle(z)/pi with a near-origin gradient GATE (backward-only).
 
-    Forward: y = atan2(imag(z), real(z)) / pi
-    Backward (away from z = 0):  dz = ybar * i*z / (pi * |z|^2)
-    At |z| <= threshold: forward returns 0, backward returns 0
-    (matches Julia ChainRules rule in src/domains.jl:65).
+    Forward: y = atan2(imag(z), real(z)) / pi. Sub-`threshold` elements are
+    zeroed in the forward only to match the exact-zero convention (atan2(0,0)
+    is undefined); with the tiny default `threshold=1e-10` this is a no-op for
+    any real signal, so the forward is bit-faithful to Julia's
+    `Phase.(angle.(x)./pi)` (src/domains.jl:44), which applies no threshold.
+
+    Backward (away from z = 0):  dz = ybar * i*z / (pi * |z|^2). This has a
+    `1/|z|^2` singularity: an SSM/attention phasor sum can cancel to
+    |z| ~ 1e-9, producing enormous cotangents that NaN training. A phasor
+    collapsed to the origin carries no useful phase, so we GATE (zero) its
+    cotangent for `|z| < grad_threshold`, capping |dz| at
+    ~|ybar|/(pi*grad_threshold). The gate is applied in the BACKWARD only
+    (forward values untouched -> parity preserved). Mirrors Julia's
+    complex_to_angle rrule, gate 1e-3 (commit ae00ded, src/domains.jl:65).
     """
 
     @staticmethod
-    def forward(ctx, z: Tensor, threshold: float) -> Tensor:
+    def forward(ctx, z: Tensor, threshold: float, grad_threshold: float) -> Tensor:
         zr = z.real
         zi = z.imag
         r2 = zr * zr + zi * zi
@@ -56,14 +66,18 @@ class _ComplexToAngle(torch.autograd.Function):
         active = r2 > th2
         y = torch.atan2(zi, zr) / PI
         y = torch.where(active, y, torch.zeros_like(y))
-        ctx.save_for_backward(z, r2, active)
-        ctx.th2 = th2
+        ctx.save_for_backward(z, r2)
+        ctx.grad_th2 = float(grad_threshold) ** 2
         return y
 
     @staticmethod
     def backward(ctx, ybar: Tensor):
-        z, r2, active = ctx.saved_tensors
-        safe_r2 = torch.clamp(r2, min=ctx.th2)
+        z, r2 = ctx.saved_tensors
+        # Gradient gate at grad_threshold (decoupled from the forward threshold):
+        # only |z| >= grad_threshold get a cotangent; the denominator floor
+        # bounds |dz| for elements just above the gate.
+        active = r2 > ctx.grad_th2
+        safe_r2 = torch.clamp(r2, min=ctx.grad_th2)
         # dz = ybar * (i * z) / (pi * |z|^2)
         dz_real = -ybar * z.imag / (PI * safe_r2)
         dz_imag = ybar * z.real / (PI * safe_r2)
@@ -71,16 +85,20 @@ class _ComplexToAngle(torch.autograd.Function):
         dz_real = torch.where(active, dz_real, zero)
         dz_imag = torch.where(active, dz_imag, zero)
         dz = torch.complex(dz_real, dz_imag)
-        return dz, None  # no grad for threshold
+        return dz, None, None  # no grad for thresholds
 
 
-def complex_to_angle(z: Tensor, threshold: float = 1e-10) -> Tensor:
+def complex_to_angle(z: Tensor, threshold: float = 1e-10,
+                     grad_threshold: float = 1e-3) -> Tensor:
     """Map complex tensor to phase tensor (real, [-1, 1] units of pi).
 
-    y = angle(z) / pi, with sub-threshold elements zeroed in both forward
-    and backward to avoid NaN propagation from atan2(0, 0).
+    y = angle(z) / pi. `threshold` (tiny) only guards the exact-zero forward;
+    `grad_threshold` (1e-3) gates the backward `1/|z|^2` singularity so
+    collapsed phasors (|z| < grad_threshold) contribute no gradient. The
+    forward stays parity-faithful to Julia; the gate matches the Julia rrule
+    (src/domains.jl:65, commit ae00ded).
     """
-    return _ComplexToAngle.apply(z, threshold)
+    return _ComplexToAngle.apply(z, threshold, grad_threshold)
 
 
 # --------------------------------------------------------------------------

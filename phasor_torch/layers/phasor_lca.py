@@ -55,7 +55,8 @@ class PhasorLCA(nn.Module):
       n_anchors: number of anchor patterns per head.
       activation: applied to the final Phase output (default normalize_to_unit_circle).
       init_scale: initial scale parameter (default 3.0).
-      init_mode: PhasorDense init for k/v ('hippo' default).
+      init_mode: PhasorDense lambda init for k/v ('default' or 'hippo';
+                 default 'default' = uniform read heads, config B).
       spk_args: SpikingArgs forwarded to k/v.
       generator: optional torch.Generator for deterministic init.
     """
@@ -69,7 +70,7 @@ class PhasorLCA(nn.Module):
         activation: Optional[Callable[[Tensor], Tensor]] = normalize_to_unit_circle,
         *,
         init_scale: float = 3.0,
-        init_mode: str = "hippo",
+        init_mode: str = "default",
         spk_args: Optional[SpikingArgs] = None,
         generator: torch.Generator | None = None,
     ):

@@ -247,30 +247,54 @@ def causal_conv_dirac(phases: Tensor, W: Tensor,
 # --------------------------------------------------------------------------
 
 
-def hippo_legs_diagonal(N: int, clip_decay: float | None = None
+# Time-constant span (in discrete steps, dt=1) for the log-spaced :hippo
+# spectrum. tau = 1/|lam|, so these bound how far back each channel remembers.
+#   HIPPO_TAU_MIN — fastest channel: a near-instant "read what's here now" tap.
+#   HIPPO_TAU_MAX — slowest channel: a long-memory integrator (a genuine tape).
+# The earlier default (lam log-spaced 0.5 .. N-0.5) capped the SLOWEST channel at
+# tau=2 steps — a spread of *short* timescales, not a tape — and its extreme fast
+# end (lam ~ -63.5) drove projection outputs to the origin (complex_to_angle
+# gradient blow-up). Anchoring the slow end at tau=HIPPO_TAU_MAX makes :hippo a
+# real short-AND-long multi-timescale basis and gentles the fast end. lam only
+# shapes dynamics in the 3D SSM / ODE path (no-op in 2D static).
+HIPPO_TAU_MIN = 0.5
+HIPPO_TAU_MAX = 64.0
+
+
+def hippo_legs_diagonal(N: int, tau_max: float | None = None,
+                        clip_decay: float | None = None
                         ) -> tuple[Tensor, Tensor]:
-    """HiPPO-LegS diagonal initialization (the :hippo init mode).
+    """HiPPO-LegS-inspired diagonal initialization (the :hippo init mode).
 
     Returns (lam, omega) as length-N float32 vectors. Callers map lam
     to the log parameterization with log_neg_lambda = log(-lam).
 
-    With clip_decay=None (default): log-spaced lam_mag from 0.5 to N-0.5
-    across N channels. With clip_decay set: linear ns + 0.5 clipped above.
+    With clip_decay=None (default): lam_mag log-spaced over time-constants
+    tau in [HIPPO_TAU_MIN, tau_max] (default tau_max=HIPPO_TAU_MAX=64), i.e.
+    |lam| from 1/tau_max (slow, long memory) up to 1/HIPPO_TAU_MIN (fast,
+    near-instant). This range is N-INDEPENDENT (only the number of samples
+    along it depends on N). With clip_decay set: legacy linear ns + 0.5
+    clipped above (overrides tau_max).
 
     Phase-locked layers (PhasorDense / PhasorConv / PhasorFixed /
     PhasorResonant) discard the omega vector and use a single shared
     omega = 2*pi to maintain HD-VSA carrier consistency. Only ResonantSTFT
     keeps the per-channel omega from this init.
 
-    Mirrors Julia src/kernels.jl:442.
+    Mirrors Julia src/kernels.jl:456 (commit 15388cb).
     """
-    if clip_decay is None:
-        log_lo = math.log(0.5)
-        log_hi = math.log(N - 0.5)
-        lam_mag = torch.exp(torch.linspace(log_lo, log_hi, N, dtype=torch.float32))
-    else:
+    if clip_decay is not None:
+        # Legacy linear HiPPO with hard clip.
         ns = torch.arange(N, dtype=torch.float32)
         lam_mag = torch.clamp(ns + 0.5, max=float(clip_decay))
+    else:
+        # Log-spaced time-constants tau in [HIPPO_TAU_MIN, tau_max]: the slow
+        # end is a long-memory integrator, the fast end a near-instant read tap.
+        tmax = HIPPO_TAU_MAX if tau_max is None else float(tau_max)
+        lam_slow = 1.0 / tmax             # small |lam| -> long memory
+        lam_fast = 1.0 / HIPPO_TAU_MIN    # large |lam| -> short memory
+        lam_mag = torch.exp(torch.linspace(
+            math.log(lam_slow), math.log(lam_fast), N, dtype=torch.float32))
     lam = -lam_mag
     omega = math.pi * lam_mag
     return lam, omega
