@@ -53,13 +53,14 @@ def test_construction_no_bias():
 
 def test_construction_hippo_init():
     layer = PhasorDense(6, 16, init_mode="hippo")
-    # log_neg_lambda elements should span the log of [0.5, N-0.5]
+    # Config-B long tape: |lam| log-spaced over tau in [0.5, 64], i.e.
+    # |lam| from 1/64 (slow, long memory) to 1/0.5 = 2 (fast). N-INDEPENDENT.
     log_lam = layer.log_neg_lambda
     assert log_lam.shape == (16,)
-    # First lambda magnitude is exp(log(0.5)) = 0.5
-    assert torch.isclose(torch.exp(log_lam[0]), torch.tensor(0.5), atol=1e-5)
-    # Last lambda magnitude is exp(log(15.5)) = 15.5
-    assert torch.isclose(torch.exp(log_lam[-1]), torch.tensor(15.5), atol=1e-4)
+    # First lambda magnitude is 1/HIPPO_TAU_MAX = 1/64.
+    assert torch.isclose(torch.exp(log_lam[0]), torch.tensor(1.0 / 64.0), atol=1e-5)
+    # Last lambda magnitude is 1/HIPPO_TAU_MIN = 1/0.5 = 2.0.
+    assert torch.isclose(torch.exp(log_lam[-1]), torch.tensor(2.0), atol=1e-5)
 
 
 def test_construction_explicit_log_neg_lambda():

@@ -35,6 +35,15 @@ export PHASOR_HPO_BODY=lca                  # must match the body of the results
 # the sweep, so they are intentionally left unset here to match.
 export PHASOR_HPO_N_BLOCKS=2
 export PHASOR_HPO_BLOCK_TYPE=rezero
+# ReZero sub-knobs are inherited from HpoBase, which now mirrors the package
+# CONFIG-B defaults: recenter=ON, uniform Q/K/V read heads (qkv_init_mode=default),
+# hippo FFN tape (ffn_init_mode=hippo), plus the code-level fixes (complex_to_angle
+# backward gated at 1e-3, hippo tau in [0.5,64]). So this re-run trains the
+# config-B variant of each top-K HP point (lr/init_scale/heads/anchors/readout_frac/
+# wd from results.csv) -- NOT the exact net the sweep trained (that was recenter=off,
+# hippo body, old tau_max=2). To reproduce the ORIGINAL sweep net instead, set:
+#   export PHASOR_HPO_RECENTER=0 PHASOR_HPO_QKV_INIT_MODE=hippo PHASOR_HPO_FFN_INIT_MODE=default
+# (the tau_max change is code-level and cannot be reverted by env).
 export PHASOR_HPO_SOURCE=audio
 export PHASOR_HPO_TRAIN_PATH=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw.h5
 export PHASOR_HPO_TEST_PATH=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw_test.h5

@@ -24,6 +24,10 @@ class ModelConfig:
     # Input embedding: a PhasorDense from C_in to d_hidden.
     in_dims: int = 64           # C_in (= codebook n_hd); ignored in audio mode
     d_hidden: int = 64
+    # Input-embedding PhasorDense lambda init (a genuine long-memory tape by
+    # default: hippo tau in [0.5, 64]). Distinct from the attention-block
+    # placement below (config B): read heads stay uniform, the residual stream
+    # carries the tape.
     init_mode: Literal["default", "hippo"] = "hippo"
     # Body PhasorDense recurrence preset. None keeps init_mode's default lambda;
     # the audio archs use RNN_KW = log(0.1) (per-neuron trainable decay). When
@@ -46,6 +50,13 @@ class ModelConfig:
     n_heads: int = 4
     n_anchors: int = 32         # only used when body == 'lca'
     init_scale: float = 3.0
+    # Attention-block lambda-init placement (the "config B" default from the
+    # PhasorNetworks.jl MQAR ablation): the Q/K/V read-head projections stay
+    # uniform (:default, tau=5) so they sharply localize the current token,
+    # while the residual-stream FFN carries the multi-timescale memory tape
+    # (:hippo). HiPPO in the read heads actively hurts long-range routing.
+    qkv_init_mode: Literal["default", "hippo"] = "default"
+    ffn_init_mode: Literal["default", "hippo"] = "hippo"
     # Number of stacked blocks between the input embedding and readout. 1 = the
     # canonical single-block chain (unchanged behavior).
     n_blocks: int = 1
@@ -57,9 +68,10 @@ class ModelConfig:
     #               trainable. Requires body in ('lsa', 'lca').
     block_type: Literal["plain", "rezero"] = "plain"
     # ReZero block knobs (only used when block_type == 'rezero'). Defaults match
-    # the recommended 'plain rezero' regime from the Julia findings.
+    # the config-B regime from the Julia findings (ReZero gate + pre-norm
+    # recentering on the branch, skip untouched).
     gate: Literal["none", "rezero"] = "rezero"
-    recenter: bool = False
+    recenter: bool = True
     branch_init_scale: float = 0.1   # FFN-only weight-init down-scale
     d_ff: int = 0                    # FFN hidden dim; 0 -> d_ff = d_hidden
 

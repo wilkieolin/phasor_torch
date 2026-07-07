@@ -115,8 +115,10 @@ class _PhasorFFN(nn.Module):
     """Two-layer PhasorDense MLP (`d_model -> d_ff -> d_model`).
 
     Mirrors the `ffn` Chain built inside Julia PhasorTransformerBlock
-    (src/ssm.jl:1111). Both denses carry a bias and use the supplied phase
-    activation; their weight init is down-scaled by `branch_init_scale`.
+    (src/ssm.jl:1117). Both denses carry a bias and use the supplied phase
+    activation; their weight init is down-scaled by `branch_init_scale` and
+    their per-channel lambda init is set by `init_mode` (config B: 'hippo',
+    the multi-timescale memory tape that belongs in the residual stream).
     """
 
     def __init__(
@@ -127,16 +129,17 @@ class _PhasorFFN(nn.Module):
         *,
         branch_init_scale: float,
         spk_args: SpikingArgs,
+        init_mode: str = "hippo",
         generator: torch.Generator | None = None,
     ):
         super().__init__()
         self.fc1 = PhasorDense(
-            d_model, d_ff, activation, use_bias=True,
+            d_model, d_ff, activation, use_bias=True, init_mode=init_mode,
             init_weight_scale=branch_init_scale, spk_args=spk_args,
             generator=generator,
         )
         self.fc2 = PhasorDense(
-            d_ff, d_model, activation, use_bias=True,
+            d_ff, d_model, activation, use_bias=True, init_mode=init_mode,
             init_weight_scale=branch_init_scale, spk_args=spk_args,
             generator=generator,
         )
@@ -174,9 +177,13 @@ class PhasorTransformerBlock(nn.Module):
       gate:    "none" | "rezero" (default "rezero").
       alpha0:  initial ReZero scalar (default 0.1).
       branch_init_scale: FFN weight-init down-scale (default 0.1; FFN-only).
-      recenter: prepend a PhaseRecenter to each residual branch (default False;
-                plain rezero is the recommended default -- pre-norm was
-                neutral-to-slightly-worse at depth).
+      ffn_init_mode: per-channel lambda init of both FFN denses ("hippo" default,
+                the multi-timescale memory tape that belongs in the residual
+                stream; "default" = uniform lambda=-0.2). The attention
+                projections' lambda init is set by the caller via the `attn`
+                layer's own init_mode (config B: uniform read heads).
+      recenter: prepend a PhaseRecenter (circular-mean pre-norm) to each
+                residual branch, skip untouched (default True; config B).
       activation: phase activation for the FFN denses (default normalize).
       spk_args: oscillator config forwarded to the FFN denses.
       generator: optional torch.Generator for deterministic init.
@@ -191,7 +198,8 @@ class PhasorTransformerBlock(nn.Module):
         gate: str = "rezero",
         alpha0: float = 0.1,
         branch_init_scale: float = 0.1,
-        recenter: bool = False,
+        ffn_init_mode: str = "hippo",
+        recenter: bool = True,
         activation: Callable[[Tensor], Tensor] = normalize_to_unit_circle,
         spk_args: Optional[SpikingArgs] = None,
         generator: torch.Generator | None = None,
@@ -202,7 +210,8 @@ class PhasorTransformerBlock(nn.Module):
         spk = spk_args or SpikingArgs()
         ffn = _PhasorFFN(
             d_model, d_ff_eff, activation,
-            branch_init_scale=branch_init_scale, spk_args=spk, generator=generator,
+            branch_init_scale=branch_init_scale, spk_args=spk,
+            init_mode=ffn_init_mode, generator=generator,
         )
         attn_recenter = PhaseRecenter() if recenter else None
         ffn_recenter = PhaseRecenter() if recenter else None

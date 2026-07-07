@@ -57,12 +57,41 @@ def test_complex_to_angle_zero_grad_no_nan():
     assert torch.equal(z.grad.imag, torch.zeros_like(z.grad.imag))
 
 
+def test_complex_to_angle_backward_gate():
+    """|z| < grad_threshold gets ZERO cotangent (gated); |z| above is finite.
+
+    The forward is unchanged for both (parity-safe): only the backward gates.
+    """
+    # A collapsed phasor (|z| ~ 1e-6, below the 1e-3 gate) and a healthy one.
+    z = torch.tensor([1e-6 + 0j, 1.0 + 0j], dtype=torch.complex64,
+                     requires_grad=True)
+    y = complex_to_angle(z)                       # default grad_threshold=1e-3
+    y.sum().backward()
+    g = z.grad
+    assert torch.isfinite(g.real).all() and torch.isfinite(g.imag).all()
+    # collapsed element: gated -> exactly zero, no 1/|z|^2 blow-up
+    assert g[0].real == 0.0 and g[0].imag == 0.0
+    # healthy element: real gradient present and bounded
+    assert g[1].abs() > 0.0
+    # forward value of the collapsed element is the TRUE angle (not zeroed):
+    # |z|=1e-6 > forward threshold 1e-10, so atan2 is applied normally.
+    assert torch.isfinite(y).all()
+
+
+def test_complex_to_angle_gate_caps_magnitude():
+    """max|dz| is capped near ~1/(pi*grad_threshold), not ~1/|z|^2."""
+    z = torch.tensor([2e-3 + 0j], dtype=torch.complex64, requires_grad=True)
+    complex_to_angle(z).sum().backward()
+    # just above the 1e-3 gate: |dz| ~ 1/(pi*|z|) ~ 160, bounded (not 1/|z|^2 ~ 2.5e5)
+    assert z.grad.abs().item() < 1e3
+
+
 def test_complex_to_angle_gradcheck_supra_threshold():
     """gradcheck on inputs well above threshold (complex128 for precision)."""
     torch.manual_seed(1)
     z = (torch.randn(3, 4, dtype=torch.complex128, requires_grad=True) + 0.5)
     assert torch.autograd.gradcheck(
-        lambda zz: _ComplexToAngle.apply(zz, 1e-10),
+        lambda zz: _ComplexToAngle.apply(zz, 1e-10, 1e-10),
         (z,),
         eps=1e-6,
         atol=1e-5,

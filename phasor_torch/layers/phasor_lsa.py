@@ -78,7 +78,8 @@ class PhasorLSA(nn.Module):
       activation: applied to the final Phase output. Defaults to
                   normalize_to_unit_circle (which is a pass-through on Phase).
       init_scale: initial value of the scale parameter (default 3.0).
-      init_mode:  PhasorDense init for q/k/v ('default' or 'hippo'; default 'hippo').
+      init_mode:  PhasorDense lambda init for q/k/v ('default' or 'hippo';
+                  default 'default' = uniform read heads, config B).
       spk_args:   SpikingArgs forwarded to q/k/v.
       generator:  optional torch.Generator for deterministic init.
     """
@@ -91,7 +92,7 @@ class PhasorLSA(nn.Module):
         activation: Optional[Callable[[Tensor], Tensor]] = normalize_to_unit_circle,
         *,
         init_scale: float = 3.0,
-        init_mode: str = "hippo",
+        init_mode: str = "default",
         spk_args: Optional[SpikingArgs] = None,
         generator: torch.Generator | None = None,
     ):

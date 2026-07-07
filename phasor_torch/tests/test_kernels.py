@@ -231,3 +231,24 @@ def test_hippo_legs_diagonal_clip():
     N = 8
     lam, omega = hippo_legs_diagonal(N, clip_decay=2.0)
     assert (-lam <= 2.0 + 1e-6).all()
+
+
+def test_hippo_long_tape_range_and_n_independence():
+    """Config-B :hippo tape: |lam| spans tau in [0.5, 64], N-INDEPENDENT."""
+    for N in (8, 16, 64, 128):
+        lam, _ = hippo_legs_diagonal(N)
+        lam_mag = -lam
+        assert lam_mag.shape == (N,)
+        assert lam_mag[0] < lam_mag[-1], "slow (long memory) end first"
+        # endpoints fixed regardless of N: 1/64 .. 1/0.5
+        assert torch.isclose(lam_mag[0], torch.tensor(1.0 / 64.0), atol=1e-6)
+        assert torch.isclose(lam_mag[-1], torch.tensor(2.0), atol=1e-6)
+        # tau of the slowest channel is a genuine long tape (>= 64), not tau=2
+        assert (1.0 / lam_mag[0]) >= 63.0
+
+
+def test_hippo_tau_max_override():
+    lam, _ = hippo_legs_diagonal(32, tau_max=16.0)
+    lam_mag = -lam
+    assert torch.isclose(lam_mag[0], torch.tensor(1.0 / 16.0), atol=1e-6)
+    assert torch.isclose(lam_mag[-1], torch.tensor(2.0), atol=1e-6)

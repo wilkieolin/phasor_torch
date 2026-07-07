@@ -87,7 +87,11 @@ def test_point_to_runconfig_rezero_depth_passthrough():
     assert run.model.block_type == "rezero"
     assert run.model.n_blocks == 3
     assert run.model.gate == "rezero"
-    assert run.model.recenter is False
+    # config-B defaults threaded from HpoBase: recenter on, uniform Q/K/V read
+    # heads, hippo FFN tape.
+    assert run.model.recenter is True
+    assert run.model.qkv_init_mode == "default"
+    assert run.model.ffn_init_mode == "hippo"
     assert run.model.branch_init_scale == 0.1
     assert run.train.alpha_lr_mult == 5.0
 

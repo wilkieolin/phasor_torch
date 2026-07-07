@@ -54,9 +54,14 @@ class HpoBase:
     # part of the search space.
     block_type: str = "plain"         # 'plain' | 'rezero'
     gate: str = "rezero"              # 'none' | 'rezero' (only when block_type == 'rezero')
-    recenter: bool = False            # pre-norm; off is best (Julia findings)
+    recenter: bool = True             # config-B: pre-norm on (skip untouched); MQAR findings
     branch_init_scale: float = 0.1    # FFN-only weight-init down-scale
     d_ff: int = 0                     # FFN hidden dim; 0 -> d_ff = d_hidden
+    # config-B lambda-init placement (only used when block_type == 'rezero'):
+    # uniform Q/K/V read heads, multi-timescale hippo tape in the FFN. Mirror the
+    # package ModelConfig defaults so HPO/confirm match a fresh model.
+    qkv_init_mode: str = "default"    # 'default' (uniform, tau=5) | 'hippo'
+    ffn_init_mode: str = "hippo"      # 'hippo' (long tape) | 'default'
     alpha_lr_mult: float = 5.0        # ReZero alpha gates train at lr * this
     source: str = "audio"             # 'audio' | 'synthetic' (synthetic = plumbing tests)
     train_path: Optional[str] = None
@@ -103,9 +108,12 @@ class HpoBase:
             n_blocks=_i("PHASOR_HPO_N_BLOCKS", 1),
             block_type=e("PHASOR_HPO_BLOCK_TYPE", "plain"),
             gate=e("PHASOR_HPO_GATE", "rezero"),
-            recenter=(e("PHASOR_HPO_RECENTER", "").lower() in ("1", "true", "yes")),
+            # config-B default: recenter ON. Override with PHASOR_HPO_RECENTER=0.
+            recenter=(e("PHASOR_HPO_RECENTER", "1").lower() not in ("0", "false", "no")),
             branch_init_scale=float(e("PHASOR_HPO_BRANCH_INIT_SCALE") or 0.1),
             d_ff=_i("PHASOR_HPO_D_FF", 0),
+            qkv_init_mode=e("PHASOR_HPO_QKV_INIT_MODE", "default"),
+            ffn_init_mode=e("PHASOR_HPO_FFN_INIT_MODE", "hippo"),
             alpha_lr_mult=float(e("PHASOR_HPO_ALPHA_LR_MULT") or 5.0),
             source=e("PHASOR_HPO_SOURCE", "audio"),
             train_path=e("PHASOR_HPO_TRAIN_PATH") or None,
@@ -256,6 +264,8 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
         "recenter": bool(base.recenter),
         "branch_init_scale": float(base.branch_init_scale),
         "d_ff": int(base.d_ff),
+        "qkv_init_mode": str(base.qkv_init_mode),
+        "ffn_init_mode": str(base.ffn_init_mode),
         "n_classes": int(base.n_classes),
         "n_freqs": int(base.n_freqs),
         "downsample_factor": int(base.downsample_factor),

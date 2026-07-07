@@ -92,25 +92,31 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
     elif cfg.frontend != "none":
         raise ValueError(f"unknown frontend kind {cfg.frontend!r}")
 
+    # Input embedding keeps its own lambda init (config: hippo long tape) and is
+    # NOT subject to the audio RNN_KW preset -- only an explicit
+    # cfg.init_log_neg_lambda overrides it. The RNN_KW preset (eff_lnl) applies
+    # only to the legacy plain-path body dense below.
     input_layer = PhasorDense(
         embed_in, cfg.d_hidden, normalize_to_unit_circle,
-        use_bias=False, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
+        use_bias=False, init_mode=cfg.init_mode,
+        init_log_neg_lambda=cfg.init_log_neg_lambda,
         spk_args=spk, generator=generator,
     )
     def _make_body() -> Optional[nn.Module]:
+        # Config B: Q/K/V read-head projections use uniform lambda init.
         if cfg.body == "none":
             return None
         if cfg.body == "lsa":
             return PhasorLSA(
                 cfg.d_hidden, cfg.d_hidden, n_heads=cfg.n_heads,
-                init_scale=cfg.init_scale, init_mode=cfg.init_mode,
+                init_scale=cfg.init_scale, init_mode=cfg.qkv_init_mode,
                 spk_args=spk, generator=generator,
             )
         if cfg.body == "lca":
             return PhasorLCA(
                 cfg.d_hidden, cfg.d_hidden, n_heads=cfg.n_heads,
                 n_anchors=cfg.n_anchors, init_scale=cfg.init_scale,
-                init_mode=cfg.init_mode, spk_args=spk, generator=generator,
+                init_mode=cfg.qkv_init_mode, spk_args=spk, generator=generator,
             )
         raise ValueError(f"unknown body kind {cfg.body!r}")
 
@@ -132,7 +138,8 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
             attn = _make_body()
             block = PhasorTransformerBlock(
                 cfg.d_hidden, attn, d_ff=cfg.d_ff, gate=cfg.gate,
-                branch_init_scale=cfg.branch_init_scale, recenter=cfg.recenter,
+                branch_init_scale=cfg.branch_init_scale,
+                ffn_init_mode=cfg.ffn_init_mode, recenter=cfg.recenter,
                 spk_args=spk, generator=generator,
             )
             blocks.append((f"block{suffix}", block))
