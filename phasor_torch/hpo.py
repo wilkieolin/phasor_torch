@@ -54,7 +54,7 @@ class HpoBase:
     # part of the search space.
     block_type: str = "plain"         # 'plain' | 'rezero'
     gate: str = "rezero"              # 'none' | 'rezero' (only when block_type == 'rezero')
-    recenter: bool = True             # config-B: pre-norm on (skip untouched); MQAR findings
+    recenter: bool = False            # PhaseRecenter is a NaN source & not helpful (grad_diverge_probe); off by default
     branch_init_scale: float = 0.1    # FFN-only weight-init down-scale
     d_ff: int = 0                     # FFN hidden dim; 0 -> d_ff = d_hidden
     # config-B lambda-init placement (only used when block_type == 'rezero'):
@@ -108,8 +108,8 @@ class HpoBase:
             n_blocks=_i("PHASOR_HPO_N_BLOCKS", 1),
             block_type=e("PHASOR_HPO_BLOCK_TYPE", "plain"),
             gate=e("PHASOR_HPO_GATE", "rezero"),
-            # config-B default: recenter ON. Override with PHASOR_HPO_RECENTER=0.
-            recenter=(e("PHASOR_HPO_RECENTER", "1").lower() not in ("0", "false", "no")),
+            # recenter OFF by default (NaN source, not helpful). Enable with PHASOR_HPO_RECENTER=1.
+            recenter=(e("PHASOR_HPO_RECENTER", "0").lower() in ("1", "true", "yes")),
             branch_init_scale=float(e("PHASOR_HPO_BRANCH_INIT_SCALE") or 0.1),
             d_ff=_i("PHASOR_HPO_D_FF", 0),
             qkv_init_mode=e("PHASOR_HPO_QKV_INIT_MODE", "default"),

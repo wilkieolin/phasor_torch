@@ -26,14 +26,14 @@ def test_single_block_keys_unchanged():
 
 
 def test_config_b_defaults_wired():
-    """Config-B: uniform (lambda=-0.2) Q/K/V read heads, hippo FFN tape,
-    recenter pre-norm on, hippo input embedding (long tape)."""
+    """Config-B defaults: uniform (lambda=-0.2) Q/K/V read heads, hippo FFN tape,
+    hippo input embedding (long tape), recenter OFF (NaN source, not helpful)."""
     import math
     cfg = _cfg("lca", n_blocks=1, block_type="rezero")
-    # confirm the new defaults are the config-B values
+    # confirm the current defaults
     assert cfg.qkv_init_mode == "default"
     assert cfg.ffn_init_mode == "hippo"
-    assert cfg.recenter is True
+    assert cfg.recenter is False
     _, schema = build_model(cfg)
     block = schema["block"]
     # attention K/V projections: uniform lambda init -> constant log(0.2)
@@ -47,9 +47,9 @@ def test_config_b_defaults_wired():
     assert lam_mag.std() > 0.0
     assert torch.isclose(lam_mag.min(), torch.tensor(1.0 / 64.0), atol=1e-4)
     assert torch.isclose(lam_mag.max(), torch.tensor(2.0), atol=1e-4)
-    # recenter pre-norm present on both residual branches (skip untouched)
-    assert block.attn_res.recenter is not None
-    assert block.ffn_res.recenter is not None
+    # recenter OFF -> no PhaseRecenter on either residual branch
+    assert block.attn_res.recenter is None
+    assert block.ffn_res.recenter is None
     # input embedding stays hippo (long tape)
     inp_lam = torch.exp(schema["input"].log_neg_lambda)
     assert torch.isclose(inp_lam.min(), torch.tensor(1.0 / 64.0), atol=1e-4)

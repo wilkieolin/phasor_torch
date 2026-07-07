@@ -183,7 +183,9 @@ class PhasorTransformerBlock(nn.Module):
                 projections' lambda init is set by the caller via the `attn`
                 layer's own init_mode (config B: uniform read heads).
       recenter: prepend a PhaseRecenter (circular-mean pre-norm) to each
-                residual branch, skip untouched (default True; config B).
+                residual branch, skip untouched (default False -- the recenter
+                circular-mean complex_to_angle is a near-origin singularity /
+                NaN source and is not helpful; see scripts/grad_diverge_probe.py).
       activation: phase activation for the FFN denses (default normalize).
       spk_args: oscillator config forwarded to the FFN denses.
       generator: optional torch.Generator for deterministic init.
@@ -199,7 +201,7 @@ class PhasorTransformerBlock(nn.Module):
         alpha0: float = 0.1,
         branch_init_scale: float = 0.1,
         ffn_init_mode: str = "hippo",
-        recenter: bool = True,
+        recenter: bool = False,
         activation: Callable[[Tensor], Tensor] = normalize_to_unit_circle,
         spk_args: Optional[SpikingArgs] = None,
         generator: torch.Generator | None = None,

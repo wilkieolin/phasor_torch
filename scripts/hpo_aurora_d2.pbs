@@ -1,10 +1,15 @@
 #!/bin/bash -l
 # Depth-2 (n_blocks=2) libEnsemble HPO sweep on Aurora, one trial per XPU tile.
-# Uses the depth-robust ReZero block (plain body->dense collapses past depth ~2).
-# Bias follows the canonical PhasorNetworks convention: the rezero block's FFN
-# denses carry complex bias (the dominant phase-layer conditioner) while the
-# attention Q/K/V projections and input encoder stay bias-free. No extra bias
-# is added here -- the FFN bias is on by construction inside the block.
+# Uses the depth-robust ReZero block (plain body->dense collapses past depth ~2)
+# under the CURRENT package defaults (config-B code): uniform Q/K/V read heads
+# (qkv_init_mode=default), hippo FFN memory tape (ffn_init_mode=hippo), the
+# complex_to_angle backward gate (1e-3), the long hippo tau in [0.5,64], and
+# recenter OFF (PhaseRecenter is a NaN source & not helpful -- grad_diverge_probe).
+# FFN denses carry complex bias; Q/K/V projections and input encoder are bias-free.
+# All of this is inherited from HpoBase/ModelConfig defaults -- nothing set here.
+# Writes to lca_d2_rezero_cb so it does NOT clobber the legacy pre-config-B
+# lca_d2_rezero baseline. Pairs with the recenter-off d1 sweep
+# (hpo_aurora_d1_rezero_norecenter.pbs) for a clean depth comparison.
 #   qsub scripts/hpo_aurora_d2.pbs
 #
 # NB: <256-node jobs must use the capacity queue; prod rejects jobs this small.
@@ -28,7 +33,9 @@ export PYTHONUNBUFFERED=1
 
 # ---- study configuration (PHASOR_HPO_* are read by the Problem) ----
 export PHASOR_HPO_BODY=lca                  # one study per body: lca | lsa
-# Depth-2 with the depth-robust rezero block (FFN bias is intrinsic to the block).
+# Depth-2 with the depth-robust rezero block. Current defaults are inherited
+# (recenter OFF, uniform QKV, hippo FFN, 1e-3 gate, long hippo tape) -- do not
+# set PHASOR_HPO_RECENTER etc. here.
 export PHASOR_HPO_N_BLOCKS=2
 export PHASOR_HPO_BLOCK_TYPE=rezero
 export PHASOR_HPO_SOURCE=audio
@@ -42,9 +49,9 @@ export PHASOR_HPO_EPOCHS_MAX=80
 export PHASOR_HPO_PATIENCE=6
 export PHASOR_HPO_CHECKPOINT_EVERY=10
 export PHASOR_HPO_DEVICE=xpu
-# Study dir keyed by body + depth + block_type so it never collides with the
-# d1/plain studies.
-STUDY=${PHASOR_HPO_BODY}_d${PHASOR_HPO_N_BLOCKS}_${PHASOR_HPO_BLOCK_TYPE}
+# Study dir: '_cb' suffix (config-B / current defaults) keeps this distinct from
+# the legacy pre-config-B lca_d2_rezero baseline, and from the d1 studies.
+STUDY=${PHASOR_HPO_BODY}_d${PHASOR_HPO_N_BLOCKS}_${PHASOR_HPO_BLOCK_TYPE}_cb
 export PHASOR_HPO_OUTDIR=/flare/EE-ECP/wolin/hpo_runs/${STUDY}
 export PHASOR_HPO_ENSEMBLE_DIR=${PHASOR_HPO_OUTDIR}/ensemble
 # Graceful stop ~30 min before the PBS walltime so libE writes results.csv.

@@ -85,7 +85,7 @@ Stacked phase attention only trains at depth when each attention sublayer is wra
 | λ init | `default` (uniform, τ=5) | `hippo` (long tape, τ∈[0.5,64]) | `qkv_init_mode="default"`, `ffn_init_mode="hippo"` |
 | complex bias | `use_bias=False` (gate handles origin) | `use_bias=True` | (fixed in layers) |
 | ReZero | `gate="rezero"`, α₀=0.1, α-lr ×5 | same | `gate`, `alpha_lr_mult` |
-| phase recenter | `recenter=True` (pre-norm, skip untouched) | same | `recenter=True` |
+| phase recenter | `recenter=False` (OFF — NaN source, not helpful) | same | `recenter=False` |
 
 Two enabling mechanisms make this coherent: (1) the near-origin **gradient gate** in `complex_to_angle` (backward gated at `|z|<1e-3`; see autograd note below) makes hippo/uniform projections trainable without the `1/|z|²` NaN blow-up regardless of origin proximity; (2) the **`:hippo` redefinition** to a genuine long tape (`kernels.HIPPO_TAU_MIN=0.5`, `HIPPO_TAU_MAX=64`; λ log-spaced over τ∈[0.5,64], N-independent) makes the FFN memory tape actually reach. HiPPO in the read heads *hurts* long-range routing — keep them uniform. The input embedding stays `hippo` (long tape) and is exempt from the audio RNN_KW preset (only an explicit `init_log_neg_lambda` overrides it).
 

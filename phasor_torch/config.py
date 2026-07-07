@@ -67,11 +67,14 @@ class ModelConfig:
     #               attention + FFN with a ReZero gate), making deep stacks
     #               trainable. Requires body in ('lsa', 'lca').
     block_type: Literal["plain", "rezero"] = "plain"
-    # ReZero block knobs (only used when block_type == 'rezero'). Defaults match
-    # the config-B regime from the Julia findings (ReZero gate + pre-norm
-    # recentering on the branch, skip untouched).
+    # ReZero block knobs (only used when block_type == 'rezero').
     gate: Literal["none", "rezero"] = "rezero"
-    recenter: bool = True
+    # PhaseRecenter pre-norm: OFF by default. The phasor_torch NaN investigation
+    # (scripts/grad_diverge_probe.py) traced the config-B rezero blow-ups to the
+    # recenter circular-mean complex_to_angle (min|z|->~2e-5); the on/off sweep and
+    # the local ablation both show it is not helpful and potentially harmful. Leave
+    # off unless a workload specifically benefits.
+    recenter: bool = False
     branch_init_scale: float = 0.1   # FFN-only weight-init down-scale
     d_ff: int = 0                    # FFN hidden dim; 0 -> d_ff = d_hidden
 
