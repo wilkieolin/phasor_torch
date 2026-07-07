@@ -17,6 +17,11 @@ from phasor_torch.train import train
 TOPK = int(sys.argv[1]) if len(sys.argv) > 1 else 2
 EPOCHS = sys.argv[2] if len(sys.argv) > 2 else "3"
 TRAIN_LIMIT = int(sys.argv[3]) if len(sys.argv) > 3 else 512
+# Depth is configurable so this smokes both the d2 confirm path and the new
+# d1-rezero sweep topology (block-matched to d2). HP points are borrowed from the
+# d2 results.csv either way -- they parameterize any depth.
+N_BLOCKS = int(sys.argv[4]) if len(sys.argv) > 4 else int(os.environ.get("PHASOR_SMOKE_NBLOCKS", "2"))
+BLOCK_TYPE = sys.argv[5] if len(sys.argv) > 5 else os.environ.get("PHASOR_SMOKE_BLOCK_TYPE", "rezero")
 
 TRAIN = "/home/wilkie/data/sound/sound_data_raw.h5"
 TEST = "/home/wilkie/data/sound/sound_data_raw_test.h5"
@@ -25,14 +30,15 @@ for p in (TRAIN, TEST, RESULTS):
     print(f"exists: {os.path.exists(p)}  {p}", flush=True)
 
 base = hpo.HpoBase(
-    body="lca", n_blocks=2, block_type="rezero", source="audio",
+    body="lca", n_blocks=N_BLOCKS, block_type=BLOCK_TYPE, source="audio",
     train_path=TRAIN, test_path=TEST,
     train_limit=TRAIN_LIMIT, test_limit=256,
     device="cuda", patience=0, n_classes=30,
     outdir="/tmp/confirm_smoke",
 )
-print(f"HpoBase config-B: recenter={base.recenter} qkv={base.qkv_init_mode} "
-      f"ffn={base.ffn_init_mode}", flush=True)
+print(f"HpoBase config-B: n_blocks={base.n_blocks} block_type={base.block_type} "
+      f"recenter={base.recenter} qkv={base.qkv_init_mode} ffn={base.ffn_init_mode}",
+      flush=True)
 
 top = confirm.read_top(RESULTS, TOPK)
 ok = True
