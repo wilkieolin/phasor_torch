@@ -4,8 +4,10 @@
 # under the CURRENT package defaults (config-B code): uniform Q/K/V read heads
 # (qkv_init_mode=default), hippo FFN memory tape (ffn_init_mode=hippo), the
 # complex_to_angle backward gate (1e-3), the long hippo tau in [0.5,64], and
-# recenter OFF (PhaseRecenter is a NaN source & not helpful -- grad_diverge_probe).
-# FFN denses carry complex bias; Q/K/V projections and input encoder are bias-free.
+# recenter OFF (not the NaN cause & hurt audio trainability -- grad_diverge_probe).
+# Input embedding is now UNIFORM lambda + complex bias (was the dominant NaN
+# collapse site as hippo/bias-free); FFN denses carry complex bias; Q/K/V
+# projections are bias-free (near-origin gate handles them).
 # All of this is inherited from HpoBase/ModelConfig defaults -- nothing set here.
 # Writes to lca_d2_rezero_cb so it does NOT clobber the legacy pre-config-B
 # lca_d2_rezero baseline. Pairs with the recenter-off d1 sweep

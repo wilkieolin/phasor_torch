@@ -24,11 +24,15 @@ class ModelConfig:
     # Input embedding: a PhasorDense from C_in to d_hidden.
     in_dims: int = 64           # C_in (= codebook n_hd); ignored in audio mode
     d_hidden: int = 64
-    # Input-embedding PhasorDense lambda init (a genuine long-memory tape by
-    # default: hippo tau in [0.5, 64]). Distinct from the attention-block
-    # placement below (config B): read heads stay uniform, the residual stream
-    # carries the tape.
-    init_mode: Literal["default", "hippo"] = "hippo"
+    # Input-embedding PhasorDense lambda init. UNIFORM (:default, tau=5) by
+    # default: the input embedding is a "read" layer, so it does not need the
+    # multi-timescale tape (that belongs in the FFN residual stream). hippo's
+    # fast channels (tau as low as 0.5, < the resonant period) drove the input
+    # embedding's SSM sum to the origin (|z|->1e-9) and were the dominant NaN
+    # source once QKV went uniform -- see scripts/grad_diverge_probe.py. The
+    # input embedding also uses a complex bias (build_model) to keep |z| off the
+    # origin, the same reason the (bias-carrying) FFN stays healthy.
+    init_mode: Literal["default", "hippo"] = "default"
     # Body PhasorDense recurrence preset. None keeps init_mode's default lambda;
     # the audio archs use RNN_KW = log(0.1) (per-neuron trainable decay). When
     # frontend == "resonant" and this is None, build_model applies RNN_KW.

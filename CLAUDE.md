@@ -87,13 +87,13 @@ Stacked phase attention only trains at depth when each attention sublayer is wra
 | ReZero | `gate="rezero"`, α₀=0.1, α-lr ×5 | same | `gate`, `alpha_lr_mult` |
 | phase recenter | `recenter=False` (OFF — NaN source, not helpful) | same | `recenter=False` |
 
-Two enabling mechanisms make this coherent: (1) the near-origin **gradient gate** in `complex_to_angle` (backward gated at `|z|<1e-3`; see autograd note below) makes hippo/uniform projections trainable without the `1/|z|²` NaN blow-up regardless of origin proximity; (2) the **`:hippo` redefinition** to a genuine long tape (`kernels.HIPPO_TAU_MIN=0.5`, `HIPPO_TAU_MAX=64`; λ log-spaced over τ∈[0.5,64], N-independent) makes the FFN memory tape actually reach. HiPPO in the read heads *hurts* long-range routing — keep them uniform. The input embedding stays `hippo` (long tape) and is exempt from the audio RNN_KW preset (only an explicit `init_log_neg_lambda` overrides it).
+Two enabling mechanisms make this coherent: (1) the near-origin **gradient gate** in `complex_to_angle` (backward gated at `|z|<1e-3`; see autograd note below) makes hippo/uniform projections trainable without the `1/|z|²` NaN blow-up regardless of origin proximity; (2) the **`:hippo` redefinition** to a genuine long tape (`kernels.HIPPO_TAU_MIN=0.5`, `HIPPO_TAU_MAX=64`; λ log-spaced over τ∈[0.5,64], N-independent) makes the FFN memory tape actually reach. HiPPO in the read heads *hurts* long-range routing — keep them uniform. **The input embedding is also a read layer: uniform λ (`init_mode="default"`, τ=5) + a complex bias (`use_bias=True`).** It was the dominant NaN-collapse site when it was hippo + bias-free — hippo's fast channels (τ down to 0.5, below the resonant period) drove its SSM sum to the origin (min\|z\|→1e-9), and it lacked the origin-shifting bias the FFN carries; `scripts/grad_diverge_probe.py` localized it. It is exempt from the audio RNN_KW preset (only an explicit `init_log_neg_lambda` overrides its λ init). **PhaseRecenter is OFF** — the recenter circular-mean is not the NaN cause (removing it left the NaN rate unchanged) and hurt audio trainability.
 
 ### Data flow (reference topology, mirrors `scripts/local_attention_compare.jl:245`)
 
 ```
 Phase input (C_in, L, B)
-  → PhasorDense(C_in → D_hidden, normalize_to_unit_circle, use_bias=False, hippo init)    # input embedding
+  → PhasorDense(C_in → D_hidden, normalize_to_unit_circle, use_bias=True, uniform init)    # input embedding
   → PhasorLSA(D → D, n_heads) | PhasorLCA(D → D, n_heads, n_anchors)                       # body
   → PhasorDense(D → D, identity, use_bias=False, hippo init)                               # body dense
   → SSMReadout(D → n_classes) | Codebook(D → n_classes)                                    # readout

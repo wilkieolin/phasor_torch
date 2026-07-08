@@ -50,9 +50,12 @@ def test_config_b_defaults_wired():
     # recenter OFF -> no PhaseRecenter on either residual branch
     assert block.attn_res.recenter is None
     assert block.ffn_res.recenter is None
-    # input embedding stays hippo (long tape)
-    inp_lam = torch.exp(schema["input"].log_neg_lambda)
-    assert torch.isclose(inp_lam.min(), torch.tensor(1.0 / 64.0), atol=1e-4)
+    # input embedding: uniform lambda (all log(0.2), tau=5) + complex bias on
+    # (keeps |z| off the origin; former NaN-collapse site when hippo + bias-free)
+    inp = schema["input"]
+    assert torch.allclose(inp.log_neg_lambda,
+                          torch.full_like(inp.log_neg_lambda, math.log(0.2)), atol=1e-6)
+    assert inp.bias_real is not None and inp.bias_imag is not None
 
 
 def test_stacked_block_keys_and_forward():

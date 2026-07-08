@@ -92,13 +92,17 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
     elif cfg.frontend != "none":
         raise ValueError(f"unknown frontend kind {cfg.frontend!r}")
 
-    # Input embedding keeps its own lambda init (config: hippo long tape) and is
-    # NOT subject to the audio RNN_KW preset -- only an explicit
-    # cfg.init_log_neg_lambda overrides it. The RNN_KW preset (eff_lnl) applies
-    # only to the legacy plain-path body dense below.
+    # Input embedding: uniform lambda init (cfg.init_mode default "default") + a
+    # complex bias (use_bias=True) to keep |z| off the origin. This was the
+    # dominant NaN-collapse site when it was hippo + bias-free (min|z|->1e-9);
+    # uniform removes the sub-resonant-period fast channels and the bias shifts
+    # the origin (same stabilizer the FFN already uses). Not subject to the audio
+    # RNN_KW preset -- only an explicit cfg.init_log_neg_lambda overrides its
+    # lambda init. The RNN_KW preset (eff_lnl) applies only to the legacy
+    # plain-path body dense below.
     input_layer = PhasorDense(
         embed_in, cfg.d_hidden, normalize_to_unit_circle,
-        use_bias=False, init_mode=cfg.init_mode,
+        use_bias=True, init_mode=cfg.init_mode,
         init_log_neg_lambda=cfg.init_log_neg_lambda,
         spk_args=spk, generator=generator,
     )

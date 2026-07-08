@@ -45,8 +45,10 @@ function main()
     spk = SpikingArgs(t_period = t_period)
 
     # ----- Rebuild the chain (must mirror build_model in phasor_torch/train.py).
+    # Input embedding now carries a complex bias (build_model use_bias=True) to
+    # keep |z| off the origin; uniform lambda init.
     layer_input = PhasorDense(in_dims => d_hidden, normalize_to_unit_circle;
-                              use_bias = false, init_mode = init_mode, spk_args = spk)
+                              use_bias = true, init_mode = init_mode, spk_args = spk)
     layer_body  = PhasorLSA(d_hidden => d_hidden, n_heads, normalize_to_unit_circle;
                             init_scale = init_scale, init_mode = init_mode, spk_args = spk)
     layer_dense = PhasorDense(d_hidden => d_hidden, identity;
@@ -60,14 +62,19 @@ function main()
     st_ro    = Lux.initialstates(rng, layer_ro)
 
     # ----- Load weights and override the Lux init.
-    function _dense_ps(grp_name::AbstractString)
+    function _dense_ps(grp_name::AbstractString; with_bias::Bool=false)
         raw = load_params(WEIGHTS, grp_name)
-        ps = (weight = permutedims(raw.weight, (2, 1)),
-              log_neg_lambda = vec(raw.log_neg_lambda))
-        return ps
+        if with_bias
+            return (weight = permutedims(raw.weight, (2, 1)),
+                    log_neg_lambda = vec(raw.log_neg_lambda),
+                    bias_real = vec(raw.bias_real),
+                    bias_imag = vec(raw.bias_imag))
+        end
+        return (weight = permutedims(raw.weight, (2, 1)),
+                log_neg_lambda = vec(raw.log_neg_lambda))
     end
 
-    ps_input = _dense_ps("input")
+    ps_input = _dense_ps("input"; with_bias=true)
 
     raw_body = load_params(WEIGHTS, "body")
     function _proj(sub::Symbol)
