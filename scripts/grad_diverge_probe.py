@@ -88,11 +88,16 @@ def main():
     ap.add_argument("--spike", type=float, default=1e3, help="dump full profile at first max|dz| over this")
     ap.add_argument("--recenter", choices=["config", "on", "off"], default="config",
                     help="override PhaseRecenter: 'off' ablates it (config-B NaN-source test)")
+    ap.add_argument("--init-mode", choices=["config", "default", "hippo"], default="config",
+                    help="override the input-embedding lambda init (cfg.init_mode)")
     args = ap.parse_args()
 
     cfg = json.load(open(os.path.join(ROOT, args.trial, "config.json")))
     if args.recenter != "config":
         cfg["model"]["recenter"] = (args.recenter == "on")
+    if args.init_mode != "config":
+        cfg["model"]["init_mode"] = args.init_mode
+        cfg["model"]["init_log_neg_lambda"] = None  # let init_mode drive the input lambda
     model_cfg = ModelConfig(**cfg["model"])
     data_cfg = DataConfig(**{**cfg["data"], "train_path": LOCAL_TRAIN,
                              "test_path": LOCAL_TEST, "train_limit": args.train_limit,
