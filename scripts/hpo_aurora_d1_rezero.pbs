@@ -1,13 +1,14 @@
 #!/bin/bash -l
 # Depth-1 (n_blocks=1) libEnsemble HPO sweep on Aurora, one trial per XPU tile.
-# Uses a SINGLE depth-robust ReZero block so it is block-matched to the depth-2
-# study (scripts/hpo_aurora_d2.pbs): same PhasorTransformerBlock structure, just
-# depth 1 vs 2, so a d1-vs-d2 comparison isolates depth. Defaults are the package
-# CONFIG-B regime (inherited from HpoBase -> ModelConfig): recenter ON, uniform
-# Q/K/V read heads (qkv_init_mode=default), hippo FFN tape (ffn_init_mode=hippo),
-# plus the code-level fixes (complex_to_angle backward gated at 1e-3, hippo tau in
-# [0.5,64]). No knobs are set explicitly here -- they come from the config-B
-# defaults; override via PHASOR_HPO_{RECENTER,QKV_INIT_MODE,FFN_INIT_MODE} if needed.
+# A SINGLE depth-robust ReZero block (so it HAS the 2-layer FFN + ReZero gates),
+# block-matched to scripts/hpo_aurora_d2.pbs so a d1-vs-d2 comparison isolates
+# depth. Runs under the CURRENT package defaults (inherited from ModelConfig,
+# nothing set here): uniform Q/K/V read heads, hippo FFN tape (tau in [0.5,64]),
+# UNIFORM input embedding WITH complex bias (fixed the dominant NaN collapse),
+# complex_to_angle backward gate (1e-3), and recenter OFF (not the NaN cause &
+# hurt audio trainability). Writes to lca_d1_rezero_cb so it does NOT clobber the
+# earlier lca_d1_rezero (recenter-on) / lca_d1_rezero_norecenter sweeps, and
+# pairs with lca_d2_rezero_cb.
 #   qsub scripts/hpo_aurora_d1_rezero.pbs
 #
 # NB: <256-node jobs must use the capacity queue; prod rejects jobs this small.
@@ -46,9 +47,10 @@ export PHASOR_HPO_EPOCHS_MAX=80
 export PHASOR_HPO_PATIENCE=6
 export PHASOR_HPO_CHECKPOINT_EVERY=10
 export PHASOR_HPO_DEVICE=xpu
-# Study dir keyed by body + depth + block_type so it never collides with the
-# d2/rezero or d1/plain studies.
-STUDY=${PHASOR_HPO_BODY}_d${PHASOR_HPO_N_BLOCKS}_${PHASOR_HPO_BLOCK_TYPE}
+# Study dir: '_cb' suffix (config-B / current defaults) so this fresh run does
+# not clobber the earlier lca_d1_rezero (recenter-on) or lca_d1_rezero_norecenter
+# sweeps, and matches the d2 study naming (lca_d2_rezero_cb).
+STUDY=${PHASOR_HPO_BODY}_d${PHASOR_HPO_N_BLOCKS}_${PHASOR_HPO_BLOCK_TYPE}_cb
 export PHASOR_HPO_OUTDIR=/flare/EE-ECP/wolin/hpo_runs/${STUDY}
 export PHASOR_HPO_ENSEMBLE_DIR=${PHASOR_HPO_OUTDIR}/ensemble
 # Graceful stop ~30 min before the PBS walltime so libE writes results.csv.
