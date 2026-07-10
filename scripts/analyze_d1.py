@@ -10,9 +10,12 @@ ROOT = "/home/wilkie/code/phasor_torch/hpo_runs"
 DISC = {"d_hidden": (64, 128, 256), "n_heads": (2, 4, 8),
         "n_anchors": (32, 64, 128, 256)}
 STUDIES = [
-    ("lca_d1_rezero", "NEW  d1 rezero (config-B)"),
-    ("lca_d2_rezero", "prior d2 rezero (pre-config-B)"),
-    ("lca",           "prior d1 plain  (pre-config-B baseline)"),
+    ("lca_d1_rezero_cb",         "d1 rezero, current defaults (uniform+bias input, recenter OFF)"),
+    ("lca_d1_rezero_norecenter", "d1 rezero, recenter OFF (config-B)"),
+    ("lca_d1_rezero",            "d1 rezero, recenter ON  (config-B)"),
+    ("lca_d2_rezero",            "d2 rezero (pre-config-B)"),
+    ("lca",                      "d1 plain  (pre-config-B baseline)"),
+    ("lsa",                      "d1 LSA plain (pre-config-B)"),
 ]
 
 
