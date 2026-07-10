@@ -144,6 +144,41 @@ def test_optimizer_single_group_when_plain():
     assert len(opt.param_groups) == 1
 
 
+def test_weight_decay_only_on_weights():
+    """weight_decay > 0 -> only linear `weight` matrices are decayed; every other
+    phasor param (bias, alpha, log_neg_lambda, anchors, scale) has wd=0."""
+    model, _ = build_model(_cfg("lca", n_blocks=2, block_type="rezero"))
+    name_of = {id(p): n for n, p in model.named_parameters()}
+    opt = build_optimizer(model, TrainConfig(lr=3e-4, weight_decay=1e-3,
+                                             alpha_lr_mult=5.0))
+    decayed = {name_of[id(p)] for g in opt.param_groups if g["weight_decay"] > 0
+               for p in g["params"]}
+    assert decayed, "expected a decayed group"
+    # exactly the weight matrices are decayed, nothing else
+    all_weights = {n for n, _ in model.named_parameters() if n.endswith("weight")}
+    assert decayed == all_weights
+    assert all(n.endswith("weight") for n in decayed)
+    # biases / alpha / lambda / anchors / scale are all in wd=0 groups
+    nodecay = {name_of[id(p)] for g in opt.param_groups if g["weight_decay"] == 0
+               for p in g["params"]}
+    for suffix in ("alpha", "bias_real", "bias_imag", "log_neg_lambda",
+                   "anchors", "scale"):
+        assert any(n.endswith(suffix) for n in nodecay), f"{suffix} should not decay"
+    # alpha still on the high-LR group
+    hi = max(opt.param_groups, key=lambda g: g["lr"])
+    assert all(name_of[id(p)].endswith("alpha") for p in hi["params"])
+    assert hi["weight_decay"] == 0.0
+
+
+def test_weight_decay_zero_keeps_old_group_structure():
+    # wd == 0 -> split is a no-op: 2 groups (non-alpha + alpha), old behavior.
+    model, _ = build_model(_cfg("lca", n_blocks=2, block_type="rezero"))
+    opt = build_optimizer(model, TrainConfig(lr=3e-4, weight_decay=0.0,
+                                             alpha_lr_mult=5.0))
+    assert len(opt.param_groups) == 2
+    assert all(g["weight_decay"] == 0.0 for g in opt.param_groups)
+
+
 def test_n_blocks_passthrough():
     base = hpo.HpoBase(body="lsa", source="synthetic", n_blocks=2)
     point = {"lr": 3e-4, "d_hidden_i": 0, "n_heads_i": 1, "init_scale": 3.0,

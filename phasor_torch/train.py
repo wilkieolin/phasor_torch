@@ -237,25 +237,55 @@ def forward_model(schema: OrderedDict[str, nn.Module], x: Tensor,
 
 
 def build_optimizer(model: nn.Module, cfg: TrainConfig) -> torch.optim.Optimizer:
-    """Adam over the model params, with ReZero `alpha` gates on a higher LR.
+    """Adam over the model params, with weight-decay applied to WEIGHTS ONLY and
+    ReZero `alpha` gates on a higher LR.
+
+    Weight decay is applied *only* to the linear `weight` matrices. Every other
+    phasor parameter has a meaningful non-zero target, so the usual "shrink
+    toward 0" prior is destructive:
+      - `bias_real`/`bias_imag` -> 0 collapses the complex bias onto the origin
+        (|z|->0), the exact NaN direction the bias exists to avoid;
+      - `alpha` (ReZero) -> 0 closes the gate, killing the residual branch;
+      - `log_neg_lambda` -> 0 forces lambda = -exp(0) = -1 (tau=1), overriding
+        the per-channel / hippo timescales;
+      - `anchors` (LCA Phase) -> 0 aligns the Hopfield bank, removing routing
+        diversity;
+      - ResonantSTFT `omega` -> 0 destroys the learned per-channel frequencies;
+      - `scale` (attention temperature) -> 0 flattens attention.
+    So they go in a weight_decay=0 group. This mirrors the transformer
+    convention of exempting biases / norms / embeddings from decay, and is what
+    makes a *nonzero* weight_decay helpful instead of harmful (the sweeps under
+    the old global-decay optimizer drove it to the 1e-8 floor -- see
+    scripts/analyze_covariance.py).
 
     ReZero alphas warm up from ~0 and train at `lr * alpha_lr_mult` (the Julia
-    5x rule). When the model has no alpha params (e.g. block_type='plain' or
-    gate='none'), this is a single-group Adam identical to the old behavior.
-    CosineAnnealingLR scales each group's base_lr independently, so the ratio
-    is preserved under the schedule.
+    5x rule), never decayed. When `weight_decay == 0` the decay/no-decay split
+    is a no-op, so the non-alpha params stay in a single group (identical to the
+    old behavior; parity/tests unchanged). CosineAnnealingLR scales each group's
+    base_lr independently, so the alpha LR ratio is preserved under the schedule.
     """
-    alpha_params = [p for n, p in model.named_parameters()
-                    if n.endswith("alpha") and p.requires_grad]
-    other_params = [p for n, p in model.named_parameters()
-                    if not n.endswith("alpha") and p.requires_grad]
+    named = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
+    alpha_params = [p for n, p in named if n.endswith("alpha")]
+    decay_params = [p for n, p in named if n.endswith("weight")]
+    nodecay_params = [p for n, p in named
+                      if not n.endswith("alpha") and not n.endswith("weight")]
+    wd = float(cfg.weight_decay)
+
+    groups: list[dict] = []
+    if wd > 0.0:
+        groups.append({"params": decay_params, "lr": cfg.lr, "weight_decay": wd})
+        if nodecay_params:
+            groups.append({"params": nodecay_params, "lr": cfg.lr,
+                           "weight_decay": 0.0})
+    else:
+        # wd == 0: the split is a no-op; keep one non-alpha group (old behavior).
+        groups.append({"params": decay_params + nodecay_params, "lr": cfg.lr,
+                       "weight_decay": 0.0})
     if alpha_params:
-        return torch.optim.Adam(
-            [{"params": other_params, "lr": cfg.lr},
-             {"params": alpha_params, "lr": cfg.lr * float(cfg.alpha_lr_mult)}],
-            weight_decay=cfg.weight_decay,
-        )
-    return torch.optim.Adam(other_params, lr=cfg.lr, weight_decay=cfg.weight_decay)
+        groups.append({"params": alpha_params,
+                       "lr": cfg.lr * float(cfg.alpha_lr_mult),
+                       "weight_decay": 0.0})
+    return torch.optim.Adam(groups)
 
 
 def _build_lr_scheduler(opt: torch.optim.Optimizer, cfg: TrainConfig,

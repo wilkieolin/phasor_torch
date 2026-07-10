@@ -106,9 +106,12 @@ def test_rezero_hpo_runconfig_builds_deep_model():
     model, schema = build_model(run.model)
     assert [k for k in schema if k.startswith("block")] == ["block0", "block1"]
     opt = build_optimizer(model, run.train)
-    assert len(opt.param_groups) == 2          # alpha group split out
-    lrs = sorted(g["lr"] for g in opt.param_groups)
-    assert lrs[1] == lrs[0] * 5.0              # alpha at 5x base lr
+    # weight_decay > 0 (1e-6) -> weight-decay + no-decay + alpha groups.
+    assert len(opt.param_groups) == 3
+    assert sum(1 for g in opt.param_groups if g["weight_decay"] > 0) == 1
+    hi = max(opt.param_groups, key=lambda g: g["lr"])
+    assert hi["lr"] == run.train.lr * 5.0     # alpha at 5x base lr
+    assert hi["weight_decay"] == 0.0          # alpha never decayed
 
 
 def test_point_to_runconfig_coerces_numpy_scalars():
