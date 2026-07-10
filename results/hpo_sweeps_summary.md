@@ -44,7 +44,7 @@ only in the pending `_cb` runs. FFN (2-layer MLP + ReZero) exists only in the
 |---|---|---|---|---|---|---|---|
 | `lca` (d1 plain) | 66.3% | **78.1%** | 21.7% | 58 | 0 | 142 | `hpo_aurora.pbs` (body=lca) |
 | `lsa` (d1 plain) | 63.9% | 63.3% | 27.6% | 26 | 0 | 174 | `hpo_aurora.pbs` (body=lsa) |
-| `lca_d2_rezero` (d2, pre-cfgB) | 62.3% | — (not run) | 22.2% | 76 | 16 | 108 | (pre-cfgB `hpo_aurora_d2.pbs`) |
+| `lca_d2_rezero` (d2, pre-cfgB) | 62.3% | 61.7% | 22.2% | 76 | 16 | 108 | (pre-cfgB `hpo_aurora_d2.pbs`) |
 | `lca_d1_rezero` (rezero, recenter ON) | 54.0% | — (not run) | 29.1% | 31 | 30 | 139 | (cfgB, recenter default was on) |
 | `lca_d1_rezero_norecenter` (rezero, recenter OFF) | 49.5% | — (not run) | 22.5% | 51 | 32 | 117 | (removed `_norecenter` script) |
 | `lca_d1_rezero_cb` (rezero, current defaults) | 62.6% | *pending* | 22.2% | 49 | 19 | 132 | `hpo_aurora_d1_rezero.pbs` |
@@ -59,17 +59,26 @@ Confirm results live in PBS stdout (`phasor_confirm*.o*`), not `history.json`
 
 ### Full-data confirmation detail (top-8)
 
-Only the two `plain` (no-FFN) studies have been confirmed so far.
+Three studies confirmed; the two `plain` (no-FFN) plus the depth-2 ReZero.
 
 | study | best full | incumbent (subset-#1) full | key finding |
 |---|---|---|---|
 | `lca` (plain, no FFN) | **78.1%** (subset-6th) | 73.7% | subset rank ≠ full rank — the full winner was the subset-**6th** config; subset-#1 fell to mid-pack |
 | `lsa` (plain, no FFN) | 63.3% (subset-#1) | 63.3% | full-data LCA≫LSA gap blows out to **~15 pt** (78.1 vs 63.3), vs ~2.4 pt on the subset; lr anti-correlates with full acc (low lr wins) |
+| `lca_d2_rezero` (d2 FFN+ReZero) | 61.7% (subset-#4) | 60.7% best / **35.8% final** | depth-2 does **not** help even at full data (61.7 vs d1-plain 78.1, even below d1-LSA 63.3); severe peak→final collapse (rank0 60.7→35.8, −25 pt) — instability persists at depth |
 
 **The best result overall is 78.1% — vanilla no-FFN LCA, full-data confirmed.**
-The FFN/ReZero studies (`_cb`, `d2`) have subset numbers only; whether the FFN
-block closes the gap is **unknown until `confirm_d1_rezero_cb.pbs` runs**. Never
+Depth-2 (`lca_d2_rezero`) confirms *below* both plain d1 studies, so the FFN +
+ReZero depth stack has not paid off yet. Whether the **d1** FFN block (`_cb`)
+closes the gap is still **unknown until `confirm_d1_rezero_cb.pbs` runs**. Never
 rank on the subset proxy alone — confirm top-K, not top-1.
+
+> **Reconstruction caveat (d2):** `confirm_lca_d2.pbs` rebuilds each top-K point
+> under the *current* `HpoBase` defaults (config-B-ish), **not** the exact
+> pre-cfgB net the `lca_d2_rezero` sweep trained (that was hippo body, τ_max=2,
+> no grad-gate). So 61.7% is the config-B reconstruction of those HP points, not
+> a pure re-run of the original sweep. The `_cb` confirm has no such caveat (its
+> sweep already ran on current defaults).
 
 ## Notes / caveats
 
@@ -83,7 +92,10 @@ rank on the subset proxy alone — confirm top-K, not top-1.
   - **Best confirmed result overall: 78.1% full-data (vanilla no-FFN LCA `lca`).**
     Full data lifts the plain LCA from 66.3% subset → 78.1%; LSA from 63.9 → 63.3
     (~flat), so the LCA≫LSA advantage is a full-data phenomenon (~15 pt gap).
-    The FFN/ReZero studies are subset-only so far — not yet comparable.
+  - **Depth-2 confirmed at 61.7% full-data — below both plain d1 studies.** The
+    FFN + ReZero depth stack has not helped even at scale (78.1 plain > 63.3 LSA
+    > 61.7 d2), and its confirms show severe peak→final collapse (−25 pt). The
+    d1 FFN block (`_cb`) is the remaining unknown.
   - Plain d1 has the best subset peak (66/64%) and 0 NaN, but is depth-1 only.
   - NaN blow-ups appear only in rezero blocks, only at high lr (5–10e-3).
   - recenter is NOT the NaN cause (removing it left NaN ~unchanged, 30→32) and
@@ -106,6 +118,5 @@ rank on the subset proxy alone — confirm top-K, not top-1.
   (uniform+bias input). `lca_d2_rezero_cb` (pending) will give the first clean
   d1-vs-d2 depth comparison under matched current settings.
 - Subset `peak acc` is a noisy proxy; the `confirm (best full)` column is the
-  metric to trust. Only the two `plain` studies are confirmed; every FFN/ReZero
-  study still needs a top-K full-data confirm (`confirm_d1_rezero_cb.pbs` is
-  ready; `confirm_lca_d2.pbs` exists but was never run).
+  metric to trust. Confirmed: `lca`, `lsa`, `lca_d2_rezero`. Still pending: the
+  d1 FFN block (`confirm_d1_rezero_cb.pbs`, ready) and `lca_d2_rezero_cb`.
