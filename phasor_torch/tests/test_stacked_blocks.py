@@ -14,10 +14,10 @@ def _phase_input(C, L, B, seed=0):
     return (torch.rand(C, L, B, generator=g) * 2 - 1).float()
 
 
-def _cfg(body="lca", n_blocks=1, block_type="plain"):
+def _cfg(body="lca", n_blocks=1, block_type="plain", use_ffn=True):
     return ModelConfig(frontend="none", body=body, d_hidden=32, n_heads=4,
                        n_anchors=8, in_dims=32, n_classes=10, n_blocks=n_blocks,
-                       block_type=block_type)
+                       block_type=block_type, use_ffn=use_ffn)
 
 
 def test_single_block_keys_unchanged():
@@ -150,3 +150,67 @@ def test_n_blocks_passthrough():
              "readout_frac": 0.25, "weight_decay": 1e-8, "epochs": 1}
     run = hpo.point_to_runconfig(point, base)
     assert run.model.n_blocks == 2
+
+
+# --------------------------------------------------------------------------
+# Attn-only rezero blocks (block_type == "rezero", use_ffn == False)
+# --------------------------------------------------------------------------
+
+
+def test_attn_only_block_has_no_ffn():
+    """use_ffn=False -> the block is a single ReZero attention residual: no FFN
+    sublayer, no ffn_res/* params, but the depth-enabling alpha gate remains."""
+    _, schema = build_model(_cfg("lca", n_blocks=1, block_type="rezero",
+                                 use_ffn=False))
+    block = schema["block"]
+    assert block.use_ffn is False
+    assert block.ffn_res is None
+    keys = block.parameter_dict().keys()
+    assert not any(k.startswith("ffn_res/") for k in keys)
+    assert any(k.startswith("attn_res/") for k in keys)
+    assert "attn_res/alpha" in keys      # ReZero gate retained
+
+
+def test_attn_only_stacked_forward_and_grads():
+    model, schema = build_model(_cfg("lca", n_blocks=2, block_type="rezero",
+                                     use_ffn=False))
+    assert list(schema.keys()) == ["input", "block0", "block1", "readout"]
+    x = _phase_input(32, 12, 3)
+    sims = forward_model(schema, x)
+    assert sims.shape == (10, 3) and torch.isfinite(sims).all()
+    y = torch.randint(0, 10, (3,))
+    loss = similarity_loss(sims, one_hot(y, 10))
+    loss.backward()
+    bad = [n for n, p in model.named_parameters()
+           if p.grad is None or not torch.isfinite(p.grad).all()]
+    assert not bad, f"non-finite grads: {bad}"
+
+
+def test_attn_only_optimizer_alpha_group():
+    # 2 blocks x 1 residual (attn only) = 2 alpha scalars in the high-LR group.
+    model, _ = build_model(_cfg("lsa", n_blocks=2, block_type="rezero",
+                                use_ffn=False))
+    opt = build_optimizer(model, TrainConfig(lr=3e-4, alpha_lr_mult=5.0))
+    hi = max(opt.param_groups, key=lambda g: g["lr"])
+    assert len(hi["params"]) == 2
+
+
+def test_attn_only_hdf5_round_trip(tmp_path):
+    cfg = _cfg("lca", n_blocks=2, block_type="rezero", use_ffn=False)
+    _, src = build_model(cfg, generator=torch.Generator().manual_seed(1))
+    path = tmp_path / "attn_only.h5"
+    save_state(path, src)
+    _, dst = build_model(cfg, generator=torch.Generator().manual_seed(2))
+    load_state(path, dst)
+    x = _phase_input(32, 16, 3, seed=5)
+    assert torch.allclose(forward_model(src, x), forward_model(dst, x), atol=1e-6)
+
+
+def test_use_ffn_passthrough():
+    base = hpo.HpoBase(body="lca", source="synthetic", n_blocks=2,
+                       block_type="rezero", use_ffn=False)
+    point = {"lr": 3e-4, "d_hidden_i": 0, "n_heads_i": 1, "n_anchors_i": 0,
+             "init_scale": 3.0, "readout_frac": 0.25, "weight_decay": 1e-8,
+             "epochs": 1}
+    run = hpo.point_to_runconfig(point, base)
+    assert run.model.use_ffn is False

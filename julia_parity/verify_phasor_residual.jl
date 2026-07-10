@@ -36,26 +36,40 @@ function enumerate_residual_cases(dir::AbstractString)
     return cases
 end
 
-function build_block(meta)
+_use_ffn(meta) = get(meta, "use_ffn", "True") == "True"
+
+function _build_attn(meta)
     D = parse(Int, meta["d_model"])
     n_heads = parse(Int, meta["n_heads"])
     init_scale = parse(Float32, meta["init_scale"])
     t_period = parse(Float32, meta["t_period"])
+    spk = SpikingArgs(t_period = t_period)
+    if meta["kind"] == "lsa"
+        return PhasorLSA(D => D, n_heads, normalize_to_unit_circle;
+                         init_scale = init_scale, init_mode = :hippo, spk_args = spk)
+    else
+        n_anchors = parse(Int, meta["n_anchors"])
+        return PhasorLCA(D => D, n_heads, n_anchors, normalize_to_unit_circle;
+                         init_scale = init_scale, init_mode = :hippo, spk_args = spk)
+    end
+end
+
+function build_block(meta)
+    D = parse(Int, meta["d_model"])
     gate = Symbol(meta["gate"])
     alpha0 = parse(Float32, meta["alpha0"])
     bis = parse(Float32, meta["branch_init_scale"])
     recenter = meta["recenter"] == "True"
     d_ff = parse(Int, meta["d_ff"])
     d_ff_eff = d_ff > 0 ? d_ff : D
-    spk = SpikingArgs(t_period = t_period)
+    attn = _build_attn(meta)
 
-    if meta["kind"] == "lsa"
-        attn = PhasorLSA(D => D, n_heads, normalize_to_unit_circle;
-                         init_scale = init_scale, init_mode = :hippo, spk_args = spk)
-    else
-        n_anchors = parse(Int, meta["n_anchors"])
-        attn = PhasorLCA(D => D, n_heads, n_anchors, normalize_to_unit_circle;
-                         init_scale = init_scale, init_mode = :hippo, spk_args = spk)
+    if !_use_ffn(meta)
+        # Attn-only block: the Julia equivalent of a use_ffn=False PyTorch
+        # PhasorTransformerBlock is a bare PhasorResidual(attn) (optionally
+        # pre-normed). There is no ffn_res.
+        attn_branch = recenter ? Chain(PhaseRecenter(), attn) : attn
+        return PhasorResidual(attn_branch; gate = gate, alpha0 = alpha0)
     end
     return PhasorTransformerBlock(D, attn; d_ff = d_ff_eff, gate = gate,
                                   alpha0 = alpha0, branch_init_scale = bis,
@@ -105,10 +119,16 @@ function inject_block(raw::NamedTuple, meta)
     rezero = meta["gate"] == "rezero"
 
     attn_inner = _attn_inner(kind, raw.attn_res.sublayer)
+    attn_layer = _maybe_recenter(attn_inner, recenter)
+
+    if !_use_ffn(meta)
+        # The model IS a single PhasorResidual, so its param tree is the
+        # residual's own (layer = ..., [alpha = ...]) -- not wrapped in attn_res.
+        return _residual(attn_layer, raw.attn_res, rezero)
+    end
+
     ffn_inner  = (layer_1 = _dense(raw.ffn_res.sublayer.fc1),
                   layer_2 = _dense(raw.ffn_res.sublayer.fc2))
-
-    attn_layer = _maybe_recenter(attn_inner, recenter)
     ffn_layer  = _maybe_recenter(ffn_inner, recenter)
 
     return (attn_res = _residual(attn_layer, raw.attn_res, rezero),

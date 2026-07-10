@@ -79,6 +79,11 @@ class ModelConfig:
     # the local ablation both show it is not helpful and potentially harmful. Leave
     # off unless a workload specifically benefits.
     recenter: bool = False
+    # Include the FFN residual sublayer in each rezero block (default True).
+    # False -> each block is a single ReZero-gated attention residual with NO
+    # FFN (the depth-enabling residual is retained). Used to test whether
+    # stacking attention blocks without the intermediate FFN scales with depth.
+    use_ffn: bool = True
     branch_init_scale: float = 0.1   # FFN-only weight-init down-scale
     d_ff: int = 0                    # FFN hidden dim; 0 -> d_ff = d_hidden
 

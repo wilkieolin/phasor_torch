@@ -55,6 +55,7 @@ class HpoBase:
     block_type: str = "plain"         # 'plain' | 'rezero'
     gate: str = "rezero"              # 'none' | 'rezero' (only when block_type == 'rezero')
     recenter: bool = False            # PhaseRecenter is a NaN source & not helpful (grad_diverge_probe); off by default
+    use_ffn: bool = True              # include FFN residual per rezero block; False = attn-only depth stack
     branch_init_scale: float = 0.1    # FFN-only weight-init down-scale
     d_ff: int = 0                     # FFN hidden dim; 0 -> d_ff = d_hidden
     # config-B lambda-init placement (only used when block_type == 'rezero'):
@@ -110,6 +111,8 @@ class HpoBase:
             gate=e("PHASOR_HPO_GATE", "rezero"),
             # recenter OFF by default (NaN source, not helpful). Enable with PHASOR_HPO_RECENTER=1.
             recenter=(e("PHASOR_HPO_RECENTER", "0").lower() in ("1", "true", "yes")),
+            # FFN on by default; set PHASOR_HPO_USE_FFN=0 for an attn-only depth stack.
+            use_ffn=(e("PHASOR_HPO_USE_FFN", "1").lower() not in ("0", "false", "no")),
             branch_init_scale=float(e("PHASOR_HPO_BRANCH_INIT_SCALE") or 0.1),
             d_ff=_i("PHASOR_HPO_D_FF", 0),
             qkv_init_mode=e("PHASOR_HPO_QKV_INIT_MODE", "default"),
@@ -262,6 +265,7 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
         "block_type": base.block_type,
         "gate": base.gate,
         "recenter": bool(base.recenter),
+        "use_ffn": bool(base.use_ffn),
         "branch_init_scale": float(base.branch_init_scale),
         "d_ff": int(base.d_ff),
         "qkv_init_mode": str(base.qkv_init_mode),

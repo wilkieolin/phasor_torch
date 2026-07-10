@@ -141,8 +141,8 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
             suffix = "" if n_blocks == 1 else str(i)
             attn = _make_body()
             block = PhasorTransformerBlock(
-                cfg.d_hidden, attn, d_ff=cfg.d_ff, gate=cfg.gate,
-                branch_init_scale=cfg.branch_init_scale,
+                cfg.d_hidden, attn, d_ff=cfg.d_ff, use_ffn=cfg.use_ffn,
+                gate=cfg.gate, branch_init_scale=cfg.branch_init_scale,
                 ffn_init_mode=cfg.ffn_init_mode, recenter=cfg.recenter,
                 spk_args=spk, generator=generator,
             )

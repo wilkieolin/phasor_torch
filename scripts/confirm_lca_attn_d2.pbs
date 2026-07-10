@@ -1,0 +1,64 @@
+#!/bin/bash -l
+# Full-data confirmation of the top-K configs from the DEPTH-2 ATTN-ONLY ReZero
+# LCA sweep (hpo_runs/lca_attn_d2). Two stacked ReZero attention residuals, NO
+# FFN. Trains each at FULL data, one config per XPU tile, in parallel. Compare
+# its best full-data acc against confirm_lca_attn_d1 to see if depth helps once
+# the FFN is removed.
+#   qsub scripts/confirm_lca_attn_d2.pbs
+# or:
+#   qsub -v PHASOR_CONFIRM_TOPK=8,PHASOR_CONFIRM_EPOCHS=80 scripts/confirm_lca_attn_d2.pbs
+#
+# NB: <256-node jobs must use the capacity queue; prod rejects jobs this small.
+#PBS -A EE-ECP
+#PBS -q capacity
+#PBS -l select=1
+#PBS -l walltime=48:00:00
+#PBS -l filesystems=home:flare
+#PBS -N phasor_confirm_lca_attn_d2
+#PBS -j oe
+# No `set -u`: lmod's module load references unset vars and aborts under nounset.
+set -eo pipefail
+
+module load frameworks
+source /flare/EE-ECP/wolin/envs/phasor_hpo/bin/activate
+
+REPO=/flare/EE-ECP/wolin/phasor_torch
+cd "$REPO"
+export PYTHONPATH="$REPO"
+export PYTHONUNBUFFERED=1
+
+export PHASOR_HPO_BODY=lca                  # must match the body of the results.csv
+# Topology MUST match the sweep (these come from env, not results.csv).
+export PHASOR_HPO_N_BLOCKS=2
+export PHASOR_HPO_BLOCK_TYPE=rezero
+export PHASOR_HPO_USE_FFN=0                  # attn-only: no FFN sublayer
+export PHASOR_HPO_SOURCE=audio
+export PHASOR_HPO_TRAIN_PATH=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw.h5
+export PHASOR_HPO_TEST_PATH=/flare/EE-ECP/wolin/mos2_oscillators/sound_data_raw_test.h5
+# FULL data: deliberately DO NOT set PHASOR_HPO_TRAIN_LIMIT / TEST_LIMIT.
+export PHASOR_HPO_PATIENCE=6
+export PHASOR_HPO_CHECKPOINT_EVERY=10
+export PHASOR_HPO_DEVICE=xpu
+
+export PHASOR_HPO_OUTDIR=/flare/EE-ECP/wolin/hpo_confirm/lca_attn_d2
+mkdir -p "$PHASOR_HPO_OUTDIR"
+
+export PHASOR_CONFIRM_RESULTS=${PHASOR_CONFIRM_RESULTS:-/flare/EE-ECP/wolin/hpo_runs/lca_attn_d2/results.csv}
+export PHASOR_CONFIRM_TOPK=${PHASOR_CONFIRM_TOPK:-8}
+# export PHASOR_CONFIRM_EPOCHS=80
+
+TILES_PER_NODE=12
+NODES=$(sort -u "$PBS_NODEFILE" | wc -l)
+RANKS=$PHASOR_CONFIRM_TOPK
+MAXR=$(( NODES * TILES_PER_NODE ))
+[ "$RANKS" -gt "$MAXR" ] && RANKS=$MAXR
+PPN=$(( RANKS < TILES_PER_NODE ? RANKS : TILES_PER_NODE ))
+
+echo "confirm: body=$PHASOR_HPO_BODY depth=$PHASOR_HPO_N_BLOCKS block=$PHASOR_HPO_BLOCK_TYPE use_ffn=$PHASOR_HPO_USE_FFN topk=$PHASOR_CONFIRM_TOPK ranks=$RANKS (FULL data) results=$PHASOR_CONFIRM_RESULTS"
+
+mpiexec -np "$RANKS" -ppn "$PPN" \
+    scripts/set_affinity_xpu_aurora.sh \
+    python -m phasor_torch.confirm
+
+echo "=== confirmation summary (full-data accuracies) ==="
+grep -h "\[confirm" "$PBS_O_WORKDIR"/phasor_confirm_lca_attn_d2.o* 2>/dev/null | tail -n "$RANKS" || true

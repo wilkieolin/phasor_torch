@@ -24,15 +24,19 @@ from phasor_torch.weights import save_io_pair, save_state
 
 CASES = [
     # (name, kind, D, n_heads, n_anchors, gate, alpha0, bis, recenter, d_ff,
-    #  L, B, init_scale, t_period, seed)
-    ("res_lsa_rezero",        "lsa", 16, 4,  0, "rezero", 0.3, 0.1, False, 0,  12, 3, 3.0, 1.0, 41),
-    ("res_lca_rezero",        "lca", 16, 4,  8, "rezero", 0.2, 0.1, False, 0,  10, 3, 3.0, 1.0, 42),
-    ("res_lsa_none",          "lsa",  8, 2,  0, "none",   0.0, 0.1, False, 0,   8, 2, 3.0, 1.0, 43),
-    ("res_lsa_recenter",      "lsa", 16, 4,  0, "rezero", 0.25, 0.1, True, 0,   6, 3, 3.0, 1.0, 44),
-    ("res_lca_recenter",      "lca", 16, 4,  8, "rezero", 0.15, 0.1, True, 0,   6, 3, 3.0, 1.0, 45),
-    ("res_lsa_dff",           "lsa", 16, 4,  0, "rezero", 0.3, 0.2, False, 24, 10, 3, 3.0, 1.0, 46),
-    ("res_lsa_2d",            "lsa", 12, 3,  0, "rezero", 0.3, 0.1, False, 0, None, 5, 3.0, 1.0, 47),
-    ("res_lsa_long_seq",      "lsa", 12, 3,  0, "rezero", 0.3, 0.1, False, 0, 128, 2, 2.5, 1.0, 48),
+    #  L, B, init_scale, t_period, seed, use_ffn)
+    ("res_lsa_rezero",        "lsa", 16, 4,  0, "rezero", 0.3, 0.1, False, 0,  12, 3, 3.0, 1.0, 41, True),
+    ("res_lca_rezero",        "lca", 16, 4,  8, "rezero", 0.2, 0.1, False, 0,  10, 3, 3.0, 1.0, 42, True),
+    ("res_lsa_none",          "lsa",  8, 2,  0, "none",   0.0, 0.1, False, 0,   8, 2, 3.0, 1.0, 43, True),
+    ("res_lsa_recenter",      "lsa", 16, 4,  0, "rezero", 0.25, 0.1, True, 0,   6, 3, 3.0, 1.0, 44, True),
+    ("res_lca_recenter",      "lca", 16, 4,  8, "rezero", 0.15, 0.1, True, 0,   6, 3, 3.0, 1.0, 45, True),
+    ("res_lsa_dff",           "lsa", 16, 4,  0, "rezero", 0.3, 0.2, False, 24, 10, 3, 3.0, 1.0, 46, True),
+    ("res_lsa_2d",            "lsa", 12, 3,  0, "rezero", 0.3, 0.1, False, 0, None, 5, 3.0, 1.0, 47, True),
+    ("res_lsa_long_seq",      "lsa", 12, 3,  0, "rezero", 0.3, 0.1, False, 0, 128, 2, 2.5, 1.0, 48, True),
+    # Attn-only ReZero block (use_ffn=False): the Julia equivalent is a bare
+    # PhasorResidual(attn), not a PhasorTransformerBlock. Both gate modes + 2D/3D.
+    ("res_lca_attn_only",     "lca", 16, 4,  8, "rezero", 0.2, 0.1, False, 0,  10, 3, 3.0, 1.0, 49, False),
+    ("res_lsa_attn_only",     "lsa", 12, 3,  0, "rezero", 0.3, 0.1, False, 0, None, 4, 3.0, 1.0, 50, False),
 ]
 
 
@@ -52,11 +56,11 @@ def main(out_dir: str | None = None) -> None:
 
     for case in CASES:
         (name, kind, D, n_heads, n_anchors, gate, alpha0, bis, recenter, d_ff,
-         L, B, init_scale, t_period, seed) = case
+         L, B, init_scale, t_period, seed, use_ffn) = case
         g = torch.Generator().manual_seed(seed)
         attn = _make_attn(kind, D, n_heads, n_anchors, init_scale, t_period, g)
         block = PhasorTransformerBlock(
-            D, attn, d_ff=d_ff, gate=gate, alpha0=alpha0,
+            D, attn, d_ff=d_ff, use_ffn=use_ffn, gate=gate, alpha0=alpha0,
             branch_init_scale=bis, recenter=recenter,
             spk_args=SpikingArgs(t_period=t_period), generator=g,
         )
@@ -80,6 +84,7 @@ def main(out_dir: str | None = None) -> None:
             "alpha0": str(alpha0),
             "branch_init_scale": str(bis),
             "recenter": "True" if recenter else "False",
+            "use_ffn": "True" if use_ffn else "False",
             "d_ff": str(d_ff),
             "B": str(B),
             "init_scale": str(init_scale),

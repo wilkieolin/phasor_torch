@@ -174,6 +174,12 @@ class PhasorTransformerBlock(nn.Module):
       d_model: feature dim (must match attn in/out).
       attn:    prebuilt attention layer (PhasorLSA / PhasorLCA / any (C,..)->(C,..)).
       d_ff:    FFN hidden dim; <= 0 means d_ff = d_model.
+      use_ffn: include the second (FFN) residual sublayer (default True). When
+               False the block is a single ReZero-gated attention residual
+               (`y = attn_res(x)`) with no FFN -- used to test whether stacking
+               attention blocks *without* the intermediate FFN scales with depth.
+               The depth-enabling ReZero residual is retained either way, so a
+               deep stack is still trainable; only the FFN memory tape is removed.
       gate:    "none" | "rezero" (default "rezero").
       alpha0:  initial ReZero scalar (default 0.1).
       branch_init_scale: FFN weight-init down-scale (default 0.1; FFN-only).
@@ -197,6 +203,7 @@ class PhasorTransformerBlock(nn.Module):
         attn: nn.Module,
         *,
         d_ff: int = 0,
+        use_ffn: bool = True,
         gate: str = "rezero",
         alpha0: float = 0.1,
         branch_init_scale: float = 0.1,
@@ -208,26 +215,34 @@ class PhasorTransformerBlock(nn.Module):
     ):
         super().__init__()
         self.d_model = int(d_model)
-        d_ff_eff = int(d_ff) if int(d_ff) > 0 else int(d_model)
+        self.use_ffn = bool(use_ffn)
         spk = spk_args or SpikingArgs()
-        ffn = _PhasorFFN(
-            d_model, d_ff_eff, activation,
-            branch_init_scale=branch_init_scale, spk_args=spk,
-            init_mode=ffn_init_mode, generator=generator,
-        )
         attn_recenter = PhaseRecenter() if recenter else None
-        ffn_recenter = PhaseRecenter() if recenter else None
         self.attn_res = PhasorResidual(attn, gate=gate, alpha0=alpha0,
                                        recenter=attn_recenter)
-        self.ffn_res = PhasorResidual(ffn, gate=gate, alpha0=alpha0,
-                                      recenter=ffn_recenter)
+        if self.use_ffn:
+            d_ff_eff = int(d_ff) if int(d_ff) > 0 else int(d_model)
+            ffn = _PhasorFFN(
+                d_model, d_ff_eff, activation,
+                branch_init_scale=branch_init_scale, spk_args=spk,
+                init_mode=ffn_init_mode, generator=generator,
+            )
+            ffn_recenter = PhaseRecenter() if recenter else None
+            self.ffn_res = PhasorResidual(ffn, gate=gate, alpha0=alpha0,
+                                          recenter=ffn_recenter)
+        else:
+            self.ffn_res = None
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.ffn_res(self.attn_res(x))
+        h = self.attn_res(x)
+        return h if self.ffn_res is None else self.ffn_res(h)
 
     def parameter_dict(self) -> dict[str, Tensor]:
         out: dict[str, Tensor] = {}
-        for sub_name, sub in (("attn_res", self.attn_res), ("ffn_res", self.ffn_res)):
+        subs = [("attn_res", self.attn_res)]
+        if self.ffn_res is not None:
+            subs.append(("ffn_res", self.ffn_res))
+        for sub_name, sub in subs:
             for k, v in sub.parameter_dict().items():
                 out[f"{sub_name}/{k}"] = v
         return out
