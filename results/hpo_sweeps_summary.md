@@ -40,17 +40,36 @@ only in the pending `_cb` runs. FFN (2-layer MLP + ReZero) exists only in the
 
 ## Results (of 200 trials each)
 
-| study | peak acc* | median | dead (≤12%) | NaN blow-ups | healthy | dispatch script |
-|---|---|---|---|---|---|---|
-| `lca` (d1 plain) | 66.3% | 21.7% | 58 | 0 | 142 | `hpo_aurora.pbs` (body=lca) |
-| `lsa` (d1 plain) | 63.9% | 27.6% | 26 | 0 | 174 | `hpo_aurora.pbs` (body=lsa) |
-| `lca_d2_rezero` (d2, pre-cfgB) | 62.3% | 22.2% | 76 | 16 | 108 | (pre-cfgB `hpo_aurora_d2.pbs`) |
-| `lca_d1_rezero` (rezero, recenter ON) | 54.0% | 29.1% | 31 | 30 | 139 | (cfgB, recenter default was on) |
-| `lca_d1_rezero_norecenter` (rezero, recenter OFF) | 49.5% | 22.5% | 51 | 32 | 117 | (removed `_norecenter` script) |
-| `lca_d1_rezero_cb` (rezero, current defaults) | 62.6% | 22.2% | 49 | 19 | 132 | `hpo_aurora_d1_rezero.pbs` |
-| `lca_d2_rezero_cb` *(pending)* | TBD | TBD | TBD | TBD | TBD | `hpo_aurora_d2.pbs` |
+| study | peak acc* | **confirm (best full)**† | median | dead (≤12%) | NaN blow-ups | healthy | dispatch script |
+|---|---|---|---|---|---|---|---|
+| `lca` (d1 plain) | 66.3% | **78.1%** | 21.7% | 58 | 0 | 142 | `hpo_aurora.pbs` (body=lca) |
+| `lsa` (d1 plain) | 63.9% | 63.3% | 27.6% | 26 | 0 | 174 | `hpo_aurora.pbs` (body=lsa) |
+| `lca_d2_rezero` (d2, pre-cfgB) | 62.3% | — (not run) | 22.2% | 76 | 16 | 108 | (pre-cfgB `hpo_aurora_d2.pbs`) |
+| `lca_d1_rezero` (rezero, recenter ON) | 54.0% | — (not run) | 29.1% | 31 | 30 | 139 | (cfgB, recenter default was on) |
+| `lca_d1_rezero_norecenter` (rezero, recenter OFF) | 49.5% | — (not run) | 22.5% | 51 | 32 | 117 | (removed `_norecenter` script) |
+| `lca_d1_rezero_cb` (rezero, current defaults) | 62.6% | *pending* | 22.2% | 49 | 19 | 132 | `hpo_aurora_d1_rezero.pbs` |
+| `lca_d2_rezero_cb` *(pending)* | TBD | *pending* | TBD | TBD | TBD | TBD | `hpo_aurora_d2.pbs` |
 
-\*single best trial's subset test_acc.
+\*single best trial's subset (16k) test_acc — noisy exploration objective.
+†best of the **top-8 full-data confirm** (`confirm.py` re-trains at full ~51k
+data, no subset; `best.h5` = restored peak weights). **This is the real
+headline metric** — full data lifts every config well above the subset proxy.
+Confirm results live in PBS stdout (`phasor_confirm*.o*`), not `history.json`
+(those runs predate that field); see `scripts/eval_confirm_curves.py`.
+
+### Full-data confirmation detail (top-8)
+
+Only the two `plain` (no-FFN) studies have been confirmed so far.
+
+| study | best full | incumbent (subset-#1) full | key finding |
+|---|---|---|---|
+| `lca` (plain, no FFN) | **78.1%** (subset-6th) | 73.7% | subset rank ≠ full rank — the full winner was the subset-**6th** config; subset-#1 fell to mid-pack |
+| `lsa` (plain, no FFN) | 63.3% (subset-#1) | 63.3% | full-data LCA≫LSA gap blows out to **~15 pt** (78.1 vs 63.3), vs ~2.4 pt on the subset; lr anti-correlates with full acc (low lr wins) |
+
+**The best result overall is 78.1% — vanilla no-FFN LCA, full-data confirmed.**
+The FFN/ReZero studies (`_cb`, `d2`) have subset numbers only; whether the FFN
+block closes the gap is **unknown until `confirm_d1_rezero_cb.pbs` runs**. Never
+rank on the subset proxy alone — confirm top-K, not top-1.
 
 ## Notes / caveats
 
@@ -61,6 +80,10 @@ only in the pending `_cb` runs. FFN (2-layer MLP + ReZero) exists only in the
   input); `…_norecenter` vs `…_cb` isolates the **input embedding**
   (uniform τ=5 + bias vs hippo τ≤64 no-bias), both recenter OFF.
 - **Key findings so far:**
+  - **Best confirmed result overall: 78.1% full-data (vanilla no-FFN LCA `lca`).**
+    Full data lifts the plain LCA from 66.3% subset → 78.1%; LSA from 63.9 → 63.3
+    (~flat), so the LCA≫LSA advantage is a full-data phenomenon (~15 pt gap).
+    The FFN/ReZero studies are subset-only so far — not yet comparable.
   - Plain d1 has the best subset peak (66/64%) and 0 NaN, but is depth-1 only.
   - NaN blow-ups appear only in rezero blocks, only at high lr (5–10e-3).
   - recenter is NOT the NaN cause (removing it left NaN ~unchanged, 30→32) and
@@ -82,5 +105,7 @@ only in the pending `_cb` runs. FFN (2-layer MLP + ReZero) exists only in the
 - **`lca_d1_rezero_cb` is the first sweep at the current package defaults**
   (uniform+bias input). `lca_d2_rezero_cb` (pending) will give the first clean
   d1-vs-d2 depth comparison under matched current settings.
-- Numbers are subset-exploration objective; consider a full-data confirm of each
-  study's top-K for true accuracy.
+- Subset `peak acc` is a noisy proxy; the `confirm (best full)` column is the
+  metric to trust. Only the two `plain` studies are confirmed; every FFN/ReZero
+  study still needs a top-K full-data confirm (`confirm_d1_rezero_cb.pbs` is
+  ready; `confirm_lca_d2.pbs` exists but was never run).
