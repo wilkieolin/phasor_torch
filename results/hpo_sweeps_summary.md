@@ -123,8 +123,8 @@ proxy has repeatedly mis-ranked vs full data, so read these as leaderboards of
 
 Next: full-data confirm all five (`confirm_lca_plain_cb.pbs`,
 `confirm_lca_attn_d{1,2}.pbs`, `confirm_d1_rezero_cb.pbs`,
-`confirm_lca_d2_rezero_cb.pbs` — the last still to be written). Only then can
-these be compared against the reigning 78.1% on equal footing.
+`confirm_lca_d2_rezero_cb.pbs`). Only then can these be compared against the
+reigning 78.1% on equal footing.
 
 ## Notes / caveats
 
