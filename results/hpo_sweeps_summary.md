@@ -31,12 +31,17 @@ hippo QKV, RNN_KW λ=−0.1 input, recenter off).
 | `lca_d1_rezero` | LCA · 1 · rezero | hippo (τ≤64), no-bias | uniform, no-bias | hippo (τ≤64), bias-on | **on** / on | ✓ (1e-3) · ≤64 · cfgB |
 | `lca_d1_rezero_norecenter` | LCA · 1 · rezero | hippo (τ≤64), no-bias | uniform, no-bias | hippo (τ≤64), bias-on | off / on | ✓ · ≤64 · cfgB |
 | `lca_d1_rezero_cb` | LCA · 1 · rezero | **uniform τ=5 + bias** | uniform, no-bias | hippo (τ≤64), bias-on | off / on | ✓ · ≤64 · cfgB (current) |
-| `lca_d2_rezero_cb` *(pending)* | LCA · 2 · rezero | **uniform τ=5 + bias** | uniform, no-bias | hippo (τ≤64), bias-on | off / on | ✓ · ≤64 · cfgB (current) |
+| `lca_d2_rezero_cb` | LCA · 2 · rezero | **uniform τ=5 + bias** | uniform, no-bias | hippo (τ≤64), bias-on | off / on | ✓ · ≤64 · cfgB (current) |
+| `lca_plain_cb` | LCA · 1 · plain | **uniform τ=5 + bias** | uniform, no-bias | **none** (single `dense`: identity, RNN_KW λ=−0.1, no-bias) | none / none | ✓ · ≤64 · cfgB (current) |
+| `lca_attn_d1` | LCA · 1 · rezero | **uniform τ=5 + bias** | uniform, no-bias | **none** (`use_ffn=0`) | off / on | ✓ · ≤64 · cfgB (current) |
+| `lca_attn_d2` | LCA · 2 · rezero | **uniform τ=5 + bias** | uniform, no-bias | **none** (`use_ffn=0`) | off / on | ✓ · ≤64 · cfgB (current) |
 
 Bias summary: Q/K/V projections bias-free in every sweep; FFN denses bias-on
-(rezero only); input embedding bias-free in all **completed** sweeps, bias-**on**
-only in the pending `_cb` runs. FFN (2-layer MLP + ReZero) exists only in the
-`rezero` sweeps — the `plain` runs have a single post-attention `dense`, not an FFN.
+(rezero+FFN only); input embedding bias-free in all pre-`_cb` sweeps, bias-**on**
+in every `_cb`/current-defaults run. FFN (2-layer MLP + ReZero) exists only in
+the `rezero`+FFN sweeps; `plain` has a single post-attention `dense` (not an FFN)
+and `lca_attn_d{1,2}` are ReZero attention residuals with the FFN removed
+(`use_ffn=0`) — the depth-enabling residual kept, the FFN memory tape dropped.
 
 ## Results (of 200 trials each)
 
@@ -47,8 +52,11 @@ only in the pending `_cb` runs. FFN (2-layer MLP + ReZero) exists only in the
 | `lca_d2_rezero` (d2, pre-cfgB) | 62.3% | 61.7% | 22.2% | 76 | 16 | 108 | (pre-cfgB `hpo_aurora_d2.pbs`) |
 | `lca_d1_rezero` (rezero, recenter ON) | 54.0% | — (not run) | 29.1% | 31 | 30 | 139 | (cfgB, recenter default was on) |
 | `lca_d1_rezero_norecenter` (rezero, recenter OFF) | 49.5% | — (not run) | 22.5% | 51 | 32 | 117 | (removed `_norecenter` script) |
-| `lca_d1_rezero_cb` (rezero, current defaults) | 62.6% | *pending* | 22.2% | 49 | 19 | 132 | `hpo_aurora_d1_rezero.pbs` |
-| `lca_d2_rezero_cb` *(pending)* | TBD | *pending* | TBD | TBD | TBD | TBD | `hpo_aurora_d2.pbs` |
+| `lca_d1_rezero_cb` (rezero+FFN, current defaults) | 62.6% | *pending* | 22.2% | 49 | 19 | 132 | `hpo_aurora_d1_rezero.pbs` |
+| `lca_d2_rezero_cb` (rezero+FFN d2, current defaults) | 67.2% | *pending* | 30.0% | 69 | 13 | 118 | `hpo_aurora_d2.pbs` |
+| **`lca_plain_cb`** (d1 **plain**, current defaults) | **74.8%** | *pending* | **56.4%** | 37 | 0 | 163 | `hpo_aurora_lca_plain_cb.pbs` |
+| `lca_attn_d1` (attn-only, **no FFN**, d1) | 46.5% | *pending* | 25.5% | 54 | 0 | 146 | `hpo_aurora_lca_attn_d1.pbs` |
+| `lca_attn_d2` (attn-only, **no FFN**, d2) | 65.6% | *pending* | 27.2% | 44 | 0 | 156 | `hpo_aurora_lca_attn_d2.pbs` |
 
 \*single best trial's subset (16k) test_acc — noisy exploration objective.
 †best of the **top-8 full-data confirm** (`confirm.py` re-trains at full ~51k
@@ -80,6 +88,44 @@ rank on the subset proxy alone — confirm top-K, not top-1.
 > a pure re-run of the original sweep. The `_cb` confirm has no such caveat (its
 > sweep already ran on current defaults).
 
+### Current-defaults sweep round — subset results (confirms pending)
+
+Five sweeps at the current package defaults (uniform+bias input, grad-gate,
+hippo τ≤64). **Subset objective only — no full-data confirm yet**, and the
+proxy has repeatedly mis-ranked vs full data, so read these as leaderboards of
+*candidate pools*, not final accuracy.
+
+| study | peak | median | ≥50% | dead | NaN | vs. its predecessor |
+|---|---|---|---|---|---|---|
+| **`lca_plain_cb`** (plain d1) | **74.8%** | **56.4%** | 116 | 37 | 0 | vs `lca` (pre-cfgB): peak 66.3→74.8, **median 21.7→56.4**, ≥50% 20→116 |
+| `lca_attn_d2` (attn-only, no FFN) | 65.6% | 27.2% | 3 | 44 | 0 | depth **d1→d2: 46.5→65.6** (+19 pt) |
+| `lca_attn_d1` (attn-only, no FFN) | 46.5% | 25.5% | 0 | 54 | 0 | d1 anchor for the depth ladder |
+| `lca_d2_rezero_cb` (rezero+FFN d2) | 67.2% | 30.0% | 28 | 13 | — | vs `lca_d1_rezero_cb`: peak 62.6→67.2 |
+| `lca_d1_rezero_cb` (rezero+FFN d1) | 62.6% | 22.2% | 13 | 19 | — | (input-embedding fix row) |
+
+**Answering the two questions (on the subset proxy):**
+
+- **(a) Is plain LCA still the leader? Emphatically yes — and the current
+  defaults *help it most*.** `lca_plain_cb` jumps to 74.8% peak with a **56.4%
+  median** (the old `lca` sat at 21.7% median), ≥50% count 20→116, still **0
+  NaN**. The uniform+bias input + grad-gate turned plain LCA from "high ceiling,
+  mostly-dead pool" into a broad, robust basin. On the subset it dominates every
+  other topology. (Since the old `lca` at 66.3% subset confirmed to 78.1% full,
+  a 74.8% subset here is very promising — but must be confirmed.)
+- **(b) Does stacking LCA blocks *without* the FFN scale with depth? Yes.**
+  Attn-only ReZero: **d1 46.5% → d2 65.6% peak** (+19 pt), median 25.5→27.2.
+  Depth clearly helps once the FFN is removed — and, notably, **attn-only has 0
+  NaN at both depths**, versus 13–32 NaN in every rezero+FFN sweep. Removing the
+  FFN eliminated the blow-ups. The small residual gap to `lca_d2_rezero_cb`
+  (67.2 peak) shows the FFN buys ~1.6 pt of peak at the cost of instability
+  (13 NaN, 69 dead vs 44). Neither depth-2 variant reaches plain d1 (74.8) on
+  the subset.
+
+Next: full-data confirm all five (`confirm_lca_plain_cb.pbs`,
+`confirm_lca_attn_d{1,2}.pbs`, `confirm_d1_rezero_cb.pbs`,
+`confirm_lca_d2_rezero_cb.pbs` — the last still to be written). Only then can
+these be compared against the reigning 78.1% on equal footing.
+
 ## Notes / caveats
 
 - **Confounded across generations.** The three pre-cfgB rows ran with old code
@@ -96,8 +142,12 @@ rank on the subset proxy alone — confirm top-K, not top-1.
     FFN + ReZero depth stack has not helped even at scale (78.1 plain > 63.3 LSA
     > 61.7 d2), and its confirms show severe peak→final collapse (−25 pt). The
     d1 FFN block (`_cb`) is the remaining unknown.
-  - Plain d1 has the best subset peak (66/64%) and 0 NaN, but is depth-1 only.
-  - NaN blow-ups appear only in rezero blocks, only at high lr (5–10e-3).
+  - Plain d1 dominates the subset (leader 74.8% at current defaults, `lca_plain_cb`)
+    with 0 NaN, but is depth-1 only. See the current-defaults subset round above.
+  - **Depth scales without the FFN (subset):** attn-only ReZero d1→d2 = 46.5→65.6%.
+    Removing the FFN also removes the NaN (0 vs 13–32 in every rezero+FFN sweep) —
+    the FFN, not the ReZero stack, is the blow-up source at depth.
+  - NaN blow-ups appear only in rezero **+ FFN** blocks, only at high lr (5–10e-3).
   - recenter is NOT the NaN cause (removing it left NaN ~unchanged, 30→32) and
     was net-helpful on audio (dead 31 vs 51) — so it was kept as a knob but the
     real fix targeted the collapse layer.

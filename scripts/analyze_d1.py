@@ -10,6 +10,10 @@ ROOT = "/home/wilkie/code/phasor_torch/hpo_runs"
 DISC = {"d_hidden": (64, 128, 256), "n_heads": (2, 4, 8),
         "n_anchors": (32, 64, 128, 256)}
 STUDIES = [
+    ("lca_plain_cb",             "d1 PLAIN LCA, current defaults (vanilla leader re-run)"),
+    ("lca_attn_d1",              "d1 attn-only rezero (NO FFN)"),
+    ("lca_attn_d2",              "d2 attn-only rezero (NO FFN) -- depth-scaling test"),
+    ("lca_d2_rezero_cb",         "d2 rezero+FFN, current defaults"),
     ("lca_d1_rezero_cb",         "d1 rezero, current defaults (uniform+bias input, recenter OFF)"),
     ("lca_d1_rezero_norecenter", "d1 rezero, recenter OFF (config-B)"),
     ("lca_d1_rezero",            "d1 rezero, recenter ON  (config-B)"),
