@@ -52,9 +52,9 @@ and `lca_attn_d{1,2}` are ReZero attention residuals with the FFN removed
 | `lca_d2_rezero` (d2, pre-cfgB) | 62.3% | 61.7% | 22.2% | 76 | 16 | 108 | (pre-cfgB `hpo_aurora_d2.pbs`) |
 | `lca_d1_rezero` (rezero, recenter ON) | 54.0% | — (not run) | 29.1% | 31 | 30 | 139 | (cfgB, recenter default was on) |
 | `lca_d1_rezero_norecenter` (rezero, recenter OFF) | 49.5% | — (not run) | 22.5% | 51 | 32 | 117 | (removed `_norecenter` script) |
-| `lca_d1_rezero_cb` (rezero+FFN, current defaults) | 62.6% | *pending* | 22.2% | 49 | 19 | 132 | `hpo_aurora_d1_rezero.pbs` |
+| `lca_d1_rezero_cb` (rezero+FFN, current defaults) | 62.6% | 63.7% | 22.2% | 49 | 19 | 132 | `hpo_aurora_d1_rezero.pbs` |
 | `lca_d2_rezero_cb` (rezero+FFN d2, current defaults) | 67.2% | *pending* | 30.0% | 69 | 13 | 118 | `hpo_aurora_d2.pbs` |
-| **`lca_plain_cb`** (d1 **plain**, current defaults) | **74.8%** | *pending* | **56.4%** | 37 | 0 | 163 | `hpo_aurora_lca_plain_cb.pbs` |
+| **`lca_plain_cb`** (d1 **plain**, current defaults) | **74.8%** | **79.3%** | **56.4%** | 37 | 0 | 163 | `hpo_aurora_lca_plain_cb.pbs` |
 | `lca_attn_d1` (attn-only, **no FFN**, d1) | 46.5% | *pending* | 25.5% | 54 | 0 | 146 | `hpo_aurora_lca_attn_d1.pbs` |
 | `lca_attn_d2` (attn-only, **no FFN**, d2) | 65.6% | *pending* | 27.2% | 44 | 0 | 156 | `hpo_aurora_lca_attn_d2.pbs` |
 
@@ -67,19 +67,25 @@ Confirm results live in PBS stdout (`phasor_confirm*.o*`), not `history.json`
 
 ### Full-data confirmation detail (top-8)
 
-Three studies confirmed; the two `plain` (no-FFN) plus the depth-2 ReZero.
+Five studies confirmed: the two original `plain`, the pre-cfgB depth-2 ReZero,
+and the two current-defaults d1 runs (`lca_plain_cb`, `lca_d1_rezero_cb`).
 
 | study | best full | incumbent (subset-#1) full | key finding |
 |---|---|---|---|
-| `lca` (plain, no FFN) | **78.1%** (subset-6th) | 73.7% | subset rank ≠ full rank — the full winner was the subset-**6th** config; subset-#1 fell to mid-pack |
-| `lsa` (plain, no FFN) | 63.3% (subset-#1) | 63.3% | full-data LCA≫LSA gap blows out to **~15 pt** (78.1 vs 63.3), vs ~2.4 pt on the subset; lr anti-correlates with full acc (low lr wins) |
-| `lca_d2_rezero` (d2 FFN+ReZero) | 61.7% (subset-#4) | 60.7% best / **35.8% final** | depth-2 does **not** help even at full data (61.7 vs d1-plain 78.1, even below d1-LSA 63.3); severe peak→final collapse (rank0 60.7→35.8, −25 pt) — instability persists at depth |
+| **`lca_plain_cb`** (plain, current defaults) | **79.3%** (subset-#2) | 71.0% | **NEW BEST** — current defaults edge past the old plain LCA (78.1→79.3); subset rank ≠ full rank *again* (winner was subset-#2, incumbent → 71.0%) |
+| `lca` (plain, pre-cfgB) | 78.1% (subset-6th) | 73.7% | subset rank ≠ full rank — the full winner was the subset-**6th** config; subset-#1 fell to mid-pack |
+| `lsa` (plain, pre-cfgB) | 63.3% (subset-#1) | 63.3% | full-data LCA≫LSA gap blows out to **~15 pt** (78.1 vs 63.3), vs ~2.4 pt on the subset; lr anti-correlates with full acc (low lr wins) |
+| `lca_d1_rezero_cb` (d1 FFN+ReZero, current) | 63.7% (subset-#1) | 63.7% | the FFN d1 block confirms **~15.6 pt below plain** (63.7 vs 79.3); many configs collapse peak→final (r1 44→9, r3 36→0.4, r5 48→9) — FFN instability, restore_best saves the peak |
+| `lca_d2_rezero` (d2 FFN+ReZero, pre-cfgB) | 61.7% (subset-#4) | 60.7% best / **35.8% final** | depth-2 does **not** help even at full data (61.7 vs plain 79.3, below LSA 63.3); severe peak→final collapse (−25 pt) — instability persists at depth |
 
-**The best result overall is 78.1% — vanilla no-FFN LCA, full-data confirmed.**
-Depth-2 (`lca_d2_rezero`) confirms *below* both plain d1 studies, so the FFN +
-ReZero depth stack has not paid off yet. Whether the **d1** FFN block (`_cb`)
-closes the gap is still **unknown until `confirm_d1_rezero_cb.pbs` runs**. Never
-rank on the subset proxy alone — confirm top-K, not top-1.
+**The best result overall is now 79.3% — vanilla no-FFN LCA at current defaults
+(`lca_plain_cb`), a new high past the old 78.1%.** Every FFN+ReZero variant
+confirmed so far sits ~15 pt below vanilla plain (63.7 d1, 61.7 d2), so the FFN
+depth stack still has not paid off. Whether **attn-only depth** (`lca_attn_d2`,
+which led d1 by +19 pt on the subset with 0 NaN) closes any of that gap is the
+key remaining question — pending `confirm_lca_attn_d{1,2}.pbs`. Never rank on the
+subset proxy alone — confirm top-K, not top-1 (held again here: plain winner was
+subset-#2, not #1).
 
 > **Reconstruction caveat (d2):** `confirm_lca_d2.pbs` rebuilds each top-K point
 > under the *current* `HpoBase` defaults (config-B-ish), **not** the exact
@@ -88,12 +94,14 @@ rank on the subset proxy alone — confirm top-K, not top-1.
 > a pure re-run of the original sweep. The `_cb` confirm has no such caveat (its
 > sweep already ran on current defaults).
 
-### Current-defaults sweep round — subset results (confirms pending)
+### Current-defaults sweep round — subset results
 
 Five sweeps at the current package defaults (uniform+bias input, grad-gate,
-hippo τ≤64). **Subset objective only — no full-data confirm yet**, and the
-proxy has repeatedly mis-ranked vs full data, so read these as leaderboards of
-*candidate pools*, not final accuracy.
+hippo τ≤64). Two are now full-data confirmed (`lca_plain_cb` → **79.3%**,
+`lca_d1_rezero_cb` → 63.7%; see the confirmation-detail table above); the other
+three are subset-only. The subset proxy has repeatedly mis-ranked vs full data,
+so read the un-confirmed rows as leaderboards of *candidate pools*, not final
+accuracy.
 
 | study | peak | median | ≥50% | dead | NaN | vs. its predecessor |
 |---|---|---|---|---|---|---|
@@ -105,13 +113,12 @@ proxy has repeatedly mis-ranked vs full data, so read these as leaderboards of
 
 **Answering the two questions (on the subset proxy):**
 
-- **(a) Is plain LCA still the leader? Emphatically yes — and the current
-  defaults *help it most*.** `lca_plain_cb` jumps to 74.8% peak with a **56.4%
-  median** (the old `lca` sat at 21.7% median), ≥50% count 20→116, still **0
-  NaN**. The uniform+bias input + grad-gate turned plain LCA from "high ceiling,
-  mostly-dead pool" into a broad, robust basin. On the subset it dominates every
-  other topology. (Since the old `lca` at 66.3% subset confirmed to 78.1% full,
-  a 74.8% subset here is very promising — but must be confirmed.)
+- **(a) Is plain LCA still the leader? Emphatically yes — and it CONFIRMED to a
+  new best.** `lca_plain_cb`: 74.8% peak / **56.4% median** / 0 NaN on the subset
+  (old `lca`: 66.3 / 21.7, ≥50% count 20→116), and **full-data confirm = 79.3%**,
+  edging past the old 78.1% record. The uniform+bias input + grad-gate turned
+  plain LCA from "high ceiling, mostly-dead pool" into a broad robust basin *and*
+  nudged the ceiling up. It dominates every other topology at both scales.
 - **(b) Does stacking LCA blocks *without* the FFN scale with depth? Yes.**
   Attn-only ReZero: **d1 46.5% → d2 65.6% peak** (+19 pt), median 25.5→27.2.
   Depth clearly helps once the FFN is removed — and, notably, **attn-only has 0
@@ -121,10 +128,9 @@ proxy has repeatedly mis-ranked vs full data, so read these as leaderboards of
   (13 NaN, 69 dead vs 44). Neither depth-2 variant reaches plain d1 (74.8) on
   the subset.
 
-Next: full-data confirm all five (`confirm_lca_plain_cb.pbs`,
-`confirm_lca_attn_d{1,2}.pbs`, `confirm_d1_rezero_cb.pbs`,
-`confirm_lca_d2_rezero_cb.pbs`). Only then can these be compared against the
-reigning 78.1% on equal footing.
+Confirmed: `lca_plain_cb` (79.3%), `lca_d1_rezero_cb` (63.7%). Still to confirm:
+`confirm_lca_attn_d{1,2}.pbs` (the depth-without-FFN verdict) and
+`confirm_lca_d2_rezero_cb.pbs`.
 
 ## Notes / caveats
 
@@ -135,13 +141,16 @@ reigning 78.1% on equal footing.
   input); `…_norecenter` vs `…_cb` isolates the **input embedding**
   (uniform τ=5 + bias vs hippo τ≤64 no-bias), both recenter OFF.
 - **Key findings so far:**
-  - **Best confirmed result overall: 78.1% full-data (vanilla no-FFN LCA `lca`).**
-    Full data lifts the plain LCA from 66.3% subset → 78.1%; LSA from 63.9 → 63.3
-    (~flat), so the LCA≫LSA advantage is a full-data phenomenon (~15 pt gap).
-  - **Depth-2 confirmed at 61.7% full-data — below both plain d1 studies.** The
-    FFN + ReZero depth stack has not helped even at scale (78.1 plain > 63.3 LSA
-    > 61.7 d2), and its confirms show severe peak→final collapse (−25 pt). The
-    d1 FFN block (`_cb`) is the remaining unknown.
+  - **Best confirmed result overall: 79.3% full-data (vanilla no-FFN LCA at
+    current defaults, `lca_plain_cb`)** — a new high past the old `lca` 78.1%.
+    Current defaults preserved the leader and nudged the ceiling up. LSA sits at
+    63.3%, so the LCA≫LSA advantage (~16 pt) is a full-data phenomenon.
+  - **Every FFN+ReZero variant confirms ~15 pt below vanilla plain:** d1
+    `lca_d1_rezero_cb` = 63.7%, d2 `lca_d2_rezero` = 61.7% — the FFN depth stack
+    has not paid off at any depth or data scale, and its confirms show severe
+    peak→final collapse (d1 configs 44→9 / 36→0.4; d2 −25 pt). restore_best saves
+    the peak, but the instability is real. Attn-only depth (no FFN) is the
+    remaining hope — pending `confirm_lca_attn_d{1,2}.pbs`.
   - Plain d1 dominates the subset (leader 74.8% at current defaults, `lca_plain_cb`)
     with 0 NaN, but is depth-1 only. See the current-defaults subset round above.
   - **Depth scales without the FFN (subset):** attn-only ReZero d1→d2 = 46.5→65.6%.
