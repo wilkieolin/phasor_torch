@@ -35,6 +35,14 @@ hippo QKV, RNN_KW λ=−0.1 input, recenter off).
 | `lca_plain_cb` | LCA · 1 · plain | **uniform τ=5 + bias** | uniform, no-bias | **none** (single `dense`: identity, RNN_KW λ=−0.1, no-bias) | none / none | ✓ · ≤64 · cfgB (current) |
 | `lca_attn_d1` | LCA · 1 · rezero | **uniform τ=5 + bias** | uniform, no-bias | **none** (`use_ffn=0`) | off / on | ✓ · ≤64 · cfgB (current) |
 | `lca_attn_d2` | LCA · 2 · rezero | **uniform τ=5 + bias** | uniform, no-bias | **none** (`use_ffn=0`) | off / on | ✓ · ≤64 · cfgB (current) |
+| `lca_plain_tier1` | LCA · 1 · plain | **uniform τ=5 + bias** | uniform, no-bias | **none** (single `dense`) | none / none | ✓ · ≤64 · cfgB + **Tier-1 readout** |
+
+**Tier-1 readout** (`lca_plain_tier1` only): identical to `lca_plain_cb` except
+the readout uses **softmax-CE loss** (contrastive, `PHASOR_HPO_LOSS=softmax_ce`)
++ **logsumexp pooling** (smooth max over the whole clip = the "keyword present
+anywhere" KWS bias, `PHASOR_HPO_READOUT_POOL=logsumexp`) instead of the
+non-contrastive similarity-regression + mean pool. `readout_frac` is inert under
+logsumexp. All other studies use the similarity+mean readout.
 
 Bias summary: Q/K/V projections bias-free in every sweep; FFN denses bias-on
 (rezero+FFN only); input embedding bias-free in all pre-`_cb` sweeps, bias-**on**
@@ -54,7 +62,8 @@ and `lca_attn_d{1,2}` are ReZero attention residuals with the FFN removed
 | `lca_d1_rezero_norecenter` (rezero, recenter OFF) | 49.5% | — (not run) | 22.5% | 51 | 32 | 117 | (removed `_norecenter` script) |
 | `lca_d1_rezero_cb` (rezero+FFN, current defaults) | 62.6% | 63.7% | 22.2% | 49 | 19 | 132 | `hpo_aurora_d1_rezero.pbs` |
 | `lca_d2_rezero_cb` (rezero+FFN d2, current defaults) | 67.2% | *pending* | 30.0% | 69 | 13 | 118 | `hpo_aurora_d2.pbs` |
-| **`lca_plain_cb`** (d1 **plain**, current defaults) | **74.8%** | **79.3%** | **56.4%** | 37 | 0 | 163 | `hpo_aurora_lca_plain_cb.pbs` |
+| **`lca_plain_cb`** (d1 **plain**, current defaults) | 74.8% | 79.3% | 56.4% | 37 | 0 | 163 | `hpo_aurora_lca_plain_cb.pbs` |
+| 🥇 **`lca_plain_tier1`** (d1 plain, **Tier-1 readout**) | **81.9%** | *pending* | **68.3%** | **11** | 0 | **189** | `hpo_aurora_lca_plain_tier1.pbs` |
 | `lca_attn_d1` (attn-only, **no FFN**, d1) | 46.5% | *pending* | 25.5% | 54 | 0 | 146 | `hpo_aurora_lca_attn_d1.pbs` |
 | `lca_attn_d2` (attn-only, **no FFN**, d2) | 65.6% | *pending* | 27.2% | 44 | 0 | 156 | `hpo_aurora_lca_attn_d2.pbs` |
 
@@ -96,22 +105,32 @@ subset-#2, not #1).
 
 ### Current-defaults sweep round — subset results
 
-Five sweeps at the current package defaults (uniform+bias input, grad-gate,
-hippo τ≤64). Two are now full-data confirmed (`lca_plain_cb` → **79.3%**,
+Six sweeps at the current package defaults (uniform+bias input, grad-gate,
+hippo τ≤64). Two are full-data confirmed (`lca_plain_cb` → **79.3%**,
 `lca_d1_rezero_cb` → 63.7%; see the confirmation-detail table above); the other
-three are subset-only. The subset proxy has repeatedly mis-ranked vs full data,
+four are subset-only. The subset proxy has repeatedly mis-ranked vs full data,
 so read the un-confirmed rows as leaderboards of *candidate pools*, not final
 accuracy.
 
 | study | peak | median | ≥50% | dead | NaN | vs. its predecessor |
 |---|---|---|---|---|---|---|
-| **`lca_plain_cb`** (plain d1) | **74.8%** | **56.4%** | 116 | 37 | 0 | vs `lca` (pre-cfgB): peak 66.3→74.8, **median 21.7→56.4**, ≥50% 20→116 |
+| 🥇 **`lca_plain_tier1`** (plain d1, **Tier-1 readout**) | **81.9%** | **68.3%** | 142 | **11** | 0 | vs `lca_plain_cb`: peak 74.8→81.9, **median 56.4→68.3, dead 37→11** |
+| **`lca_plain_cb`** (plain d1) | 74.8% | 56.4% | 116 | 37 | 0 | vs `lca` (pre-cfgB): peak 66.3→74.8, **median 21.7→56.4**, ≥50% 20→116 |
 | `lca_attn_d2` (attn-only, no FFN) | 65.6% | 27.2% | 3 | 44 | 0 | depth **d1→d2: 46.5→65.6** (+19 pt) |
 | `lca_attn_d1` (attn-only, no FFN) | 46.5% | 25.5% | 0 | 54 | 0 | d1 anchor for the depth ladder |
 | `lca_d2_rezero_cb` (rezero+FFN d2) | 67.2% | 30.0% | 28 | 13 | — | vs `lca_d1_rezero_cb`: peak 62.6→67.2 |
 | `lca_d1_rezero_cb` (rezero+FFN d1) | 62.6% | 22.2% | 13 | 19 | — | (input-embedding fix row) |
 
-**Answering the two questions (on the subset proxy):**
+**Answering the questions (on the subset proxy):**
+
+- **(0) The Tier-1 readout is the biggest lever yet.** Swapping ONLY the readout
+  (similarity+mean → **softmax-CE + logsumexp**) on the plain-LCA leader lifts
+  subset peak 74.8→**81.9%**, median 56.4→**68.3%**, and slashes dead trials
+  **37→11** (healthy 163→189) — exactly the predicted (a) higher ceiling +
+  (b) less dead-trial waste. Still 0 NaN. Its incumbent also shifts to a **bigger
+  model** (d256/h8 vs plain_cb's d128/h2), i.e. the contrastive+KWS readout lets
+  width/heads pay off. **81.9% subset is above the reigning 79.3% confirmed
+  leader** — very promising, but not yet confirmed at full data.
 
 - **(a) Is plain LCA still the leader? Emphatically yes — and it CONFIRMED to a
   new best.** `lca_plain_cb`: 74.8% peak / **56.4% median** / 0 NaN on the subset
@@ -129,8 +148,10 @@ accuracy.
   the subset.
 
 Confirmed: `lca_plain_cb` (79.3%), `lca_d1_rezero_cb` (63.7%). Still to confirm:
-`confirm_lca_attn_d{1,2}.pbs` (the depth-without-FFN verdict) and
-`confirm_lca_d2_rezero_cb.pbs`.
+**`lca_plain_tier1`** (the top priority — could take the crown; needs a confirm
+script pinning `PHASOR_HPO_LOSS=softmax_ce` + `PHASOR_HPO_READOUT_POOL=logsumexp`,
+which `from_env`/`point_to_runconfig` already thread), `confirm_lca_attn_d{1,2}.pbs`
+(depth-without-FFN verdict), and `confirm_lca_d2_rezero_cb.pbs`.
 
 ## Notes / caveats
 
@@ -145,6 +166,11 @@ Confirmed: `lca_plain_cb` (79.3%), `lca_d1_rezero_cb` (63.7%). Still to confirm:
     current defaults, `lca_plain_cb`)** — a new high past the old `lca` 78.1%.
     Current defaults preserved the leader and nudged the ceiling up. LSA sits at
     63.3%, so the LCA≫LSA advantage (~16 pt) is a full-data phenomenon.
+  - **The Tier-1 readout (softmax-CE + logsumexp) is the biggest single lever
+    (subset).** On the plain-LCA leader, readout-only swap → subset peak
+    74.8→81.9%, median 56.4→68.3%, dead 37→11; incumbent grows to d256/h8. This
+    81.9% subset tops the 79.3% confirmed leader — **confirm pending, likely the
+    next record.**
   - **Every FFN+ReZero variant confirms ~15 pt below vanilla plain:** d1
     `lca_d1_rezero_cb` = 63.7%, d2 `lca_d2_rezero` = 61.7% — the FFN depth stack
     has not paid off at any depth or data scale, and its confirms show severe
