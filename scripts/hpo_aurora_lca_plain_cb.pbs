@@ -16,7 +16,7 @@
 #PBS -A EE-ECP
 #PBS -q capacity
 #PBS -l select=2
-#PBS -l walltime=48:00:00
+#PBS -l walltime=24:00:00
 #PBS -l filesystems=home:flare
 #PBS -N phasor_hpo_lca_plain_cb
 #PBS -j oe
@@ -50,7 +50,7 @@ STUDY=lca_plain_cb
 export PHASOR_HPO_OUTDIR=/flare/EE-ECP/wolin/hpo_runs/${STUDY}
 export PHASOR_HPO_ENSEMBLE_DIR=${PHASOR_HPO_OUTDIR}/ensemble
 # Graceful stop ~30 min before the PBS walltime so libE writes results.csv.
-export PHASOR_HPO_WALLCLOCK_MAX=$(( 48*3600 - 1800 ))
+export PHASOR_HPO_WALLCLOCK_MAX=$(( 24*3600 - 1800 ))
 mkdir -p "$PHASOR_HPO_OUTDIR"
 
 MAX_EVALS=200

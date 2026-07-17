@@ -11,7 +11,7 @@
 #PBS -A EE-ECP
 #PBS -q capacity
 #PBS -l select=1
-#PBS -l walltime=48:00:00
+#PBS -l walltime=24:00:00
 #PBS -l filesystems=home:flare
 #PBS -N phasor_confirm_lsa
 #PBS -j oe
