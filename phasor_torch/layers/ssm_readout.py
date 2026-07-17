@@ -44,13 +44,26 @@ class SSMReadout(nn.Module):
 
     def __init__(self, hidden_dims: int, n_classes: int, *,
                  readout_frac: float = 0.25,
+                 pool: str = "mean",
+                 lse_kappa: float = 10.0,
+                 learnable_codes: bool = False,
                  generator: torch.Generator | None = None):
         super().__init__()
         self.hidden_dims = int(hidden_dims)
         self.n_classes = int(n_classes)
         self.readout_frac = float(readout_frac)
+        if pool not in ("mean", "logsumexp"):
+            raise ValueError(f"pool must be 'mean' or 'logsumexp', got {pool!r}")
+        self.pool = pool
+        self.lse_kappa = float(lse_kappa)
+        self.learnable_codes = bool(learnable_codes)
         codes = random_symbols((hidden_dims, n_classes), generator=generator)
-        self.register_buffer("codes", codes)
+        # Default (buffer) keeps forward-parity checkpoints unchanged. When
+        # learnable_codes, the class prototypes co-adapt with the network.
+        if learnable_codes:
+            self.codes = nn.Parameter(codes)
+        else:
+            self.register_buffer("codes", codes)
 
     def forward(self, x: Tensor) -> Tensor:
         if x.ndim != 3:
@@ -66,12 +79,21 @@ class SSMReadout(nn.Module):
             f"SSMReadout input channels {C} != hidden_dims {self.hidden_dims}"
         )
 
+        n_cls = self.n_classes
+        if self.pool == "logsumexp":
+            # "Is the class present at ANY timestep" — smooth max over the WHOLE
+            # clip (the keyword-spotting inductive bias). Uses all L timesteps.
+            p = x.reshape(C, 1, L, B)
+            c = self.codes.reshape(C, n_cls, 1, 1)
+            sims_per_step = torch.cos(PI * (p - c)).mean(dim=0)          # (n_cls, L, B)
+            k = self.lse_kappa
+            # (1/k)·(logsumexp_t(k·s) − log L) → max_t s as k→∞, mean_t s as k→0.
+            return (torch.logsumexp(k * sims_per_step, dim=1) - math.log(L)) / k
+
+        # default: mean over the last readout_frac window (parity-preserving path)
         t0 = _readout_t0(L, self.readout_frac)
         phases = x[:, t0:L, :]                              # (C, W, B)
         W = L - t0
-
-        n_cls = self.n_classes
-        # p: (C, 1, W, B);  c: (C, n_cls, 1, 1)
         p = phases.reshape(C, 1, W, B)
         c = self.codes.reshape(C, n_cls, 1, 1)
         cos_diff = torch.cos(PI * (p - c))                  # (C, n_cls, W, B)

@@ -35,6 +35,29 @@ def codebook_loss(sims: Tensor, targets_onehot: Tensor) -> Tensor:
     return similarity_loss(sims, targets_onehot)
 
 
+def softmax_ce_loss(sims: Tensor, targets_onehot: Tensor, beta: float = 10.0) -> Tensor:
+    """Contrastive cross-entropy over the class-similarity logits.
+
+    Unlike `similarity_loss` (which only pulls the output toward the TRUE class
+    prototype and never repels wrong classes — a regression, not a classifier),
+    this treats `beta * sims` as logits and applies softmax cross-entropy, so it
+    explicitly optimizes the class margin / argmax. `beta` is a temperature that
+    scales the [-1, 1] similarity range into usable logits.
+
+    Args:
+      sims:           (n_classes, B) real similarity scores in [-1, 1].
+      targets_onehot: (n_classes, B) one-hot float.
+      beta:           softmax temperature (logit scale).
+
+    Returns:
+      Scalar mean cross-entropy.
+    """
+    assert sims.shape == targets_onehot.shape
+    logits = float(beta) * sims                                 # (n_classes, B)
+    logp = logits - torch.logsumexp(logits, dim=0, keepdim=True)
+    return -(targets_onehot * logp).sum(dim=0).mean()
+
+
 def one_hot(labels: Tensor, n_classes: int) -> Tensor:
     """labels: (B,) long -> (n_classes, B) float one-hot."""
     onehot = torch.zeros(n_classes, labels.shape[0],

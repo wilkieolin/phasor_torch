@@ -41,7 +41,7 @@ from .layers import (
     to_phase,
 )
 from .layers.phasor_dense import SpikingArgs
-from .losses import accuracy, codebook_loss, one_hot, similarity_loss
+from .losses import accuracy, codebook_loss, one_hot, similarity_loss, softmax_ce_loss
 from .primitives import normalize_to_unit_circle
 from .weights import save_state
 
@@ -165,7 +165,9 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
     if cfg.readout == "ssm":
         readout = SSMReadout(
             cfg.d_hidden, cfg.n_classes,
-            readout_frac=cfg.readout_frac, generator=generator,
+            readout_frac=cfg.readout_frac, pool=cfg.readout_pool,
+            lse_kappa=cfg.logsumexp_kappa, learnable_codes=cfg.learnable_codes,
+            generator=generator,
         )
     elif cfg.readout == "codebook":
         readout = Codebook(
@@ -326,9 +328,18 @@ def _early_stop(values: list[float], patience: int, min_delta: float,
     return recent_best >= best_before - min_delta
 
 
+def _make_loss_fn(cfg: TrainConfig):
+    """Return loss_fn(sims, onehot) -> scalar, per cfg.loss."""
+    if cfg.loss == "softmax_ce":
+        beta = float(cfg.ce_beta)
+        return lambda sims, oh: softmax_ce_loss(sims, oh, beta)
+    return similarity_loss
+
+
 @torch.no_grad()
 def evaluate(schema: OrderedDict[str, nn.Module], loader, device: torch.device,
-             n_classes: int, downsample_factor: int = 1) -> tuple[float, float]:
+             n_classes: int, downsample_factor: int = 1,
+             loss_fn=similarity_loss) -> tuple[float, float]:
     """Return (mean_loss, accuracy) over a loader."""
     total_loss = 0.0
     total_correct = 0
@@ -339,7 +350,7 @@ def evaluate(schema: OrderedDict[str, nn.Module], loader, device: torch.device,
         y = y.to(device)
         sims = forward_model(schema, x, downsample_factor)
         oh = one_hot(y, n_classes)
-        loss = similarity_loss(sims, oh)
+        loss = loss_fn(sims, oh)
         preds = sims.argmax(dim=0)
         total_loss += float(loss.item())
         total_correct += int((preds == y).sum().item())
@@ -405,6 +416,7 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
 
     opt = build_optimizer(model, run.train)
     scheduler = _build_lr_scheduler(opt, run.train, len(train_loader))
+    loss_fn = _make_loss_fn(run.train)
 
     ds = run.model.downsample_factor if run.model.frontend == "resonant" else 1
 
@@ -431,7 +443,7 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
             opt.zero_grad(set_to_none=True)
             sims = forward_model(schema, x, ds)
             oh = one_hot(y, run.model.n_classes)
-            loss = similarity_loss(sims, oh)
+            loss = loss_fn(sims, oh)
             loss.backward()
             opt.step()
             if scheduler is not None:
@@ -448,7 +460,7 @@ def train(run: RunConfig, *, save_path: Optional[str] = None) -> dict:
 
         model.eval()
         test_loss, test_acc = evaluate(schema, test_loader, device,
-                                       run.model.n_classes, ds)
+                                       run.model.n_classes, ds, loss_fn=loss_fn)
         row = {
             "epoch": epoch,
             "train_loss": train_loss, "train_acc": train_acc,

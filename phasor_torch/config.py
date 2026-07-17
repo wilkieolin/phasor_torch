@@ -90,8 +90,16 @@ class ModelConfig:
     # Readout: 'codebook' | 'ssm'.
     readout: Literal["codebook", "ssm"] = "ssm"
     n_classes: int = 10
-    readout_frac: float = 0.25  # only used when readout == 'ssm'
+    readout_frac: float = 0.25  # only used when readout == 'ssm', pool == 'mean'
     codebook_init_mode: Literal["random", "orthogonal"] = "random"
+    # SSMReadout temporal aggregation. 'mean' = average similarity over the last
+    # readout_frac window (default, parity-preserving). 'logsumexp' = smooth max
+    # over the WHOLE clip ("is the keyword present anywhere?" — the KWS inductive
+    # bias; the local TIR readout ablation showed it flips the FFN redundant and
+    # lifts accuracy). learnable_codes makes the class prototypes trainable.
+    readout_pool: Literal["mean", "logsumexp"] = "mean"
+    logsumexp_kappa: float = 10.0
+    learnable_codes: bool = False
 
     # Oscillator config.
     t_period: float = 1.0
@@ -127,6 +135,12 @@ class TrainConfig:
     batch_size: int = 32
     epochs: int = 5
     lr: float = 3e-4
+    # Classification loss. 'similarity' = the phase-distance regression toward the
+    # true prototype (default, matches history). 'softmax_ce' = contrastive
+    # cross-entropy over beta*sims logits — explicitly optimizes the class margin;
+    # the biggest single accuracy lever in the local TIR readout ablation.
+    loss: Literal["similarity", "softmax_ce"] = "similarity"
+    ce_beta: float = 10.0                  # softmax temperature (loss == 'softmax_ce')
     # ReZero alpha gates warm up from ~0 and benefit from a higher LR than the
     # rest of the network. When the model has any `alpha` params, they train at
     # `lr * alpha_lr_mult`; otherwise this is inert. Matches the Julia 5x rule.

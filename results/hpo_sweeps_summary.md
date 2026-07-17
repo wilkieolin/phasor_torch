@@ -179,3 +179,29 @@ Confirmed: `lca_plain_cb` (79.3%), `lca_d1_rezero_cb` (63.7%). Still to confirm:
 - Subset `peak acc` is a noisy proxy; the `confirm (best full)` column is the
   metric to trust. Confirmed: `lca`, `lsa`, `lca_d2_rezero`. Still pending: the
   d1 FFN block (`confirm_d1_rezero_cb.pbs`, ready) and `lca_d2_rezero_cb`.
+
+## Next direction — Tier-1 readout (`lca_plain_tier1`, dispatch READY)
+
+Driven by the local synthetic study + a local audio A/B (see
+`../../results/temporal_scaling/FINDINGS_knobs.md` §Tier-1 readout ablation,
+`findings_report.html`, and `results/LINCHPIN_FINDINGS.md`). The reconciliation
+established the **readout/loss is a bigger lever than any body knob**, and the
+biggest movers are:
+- **softmax-CE** (contrastive) instead of the non-contrastive `similarity_loss`
+  (which only pulls toward the true prototype) — biggest general accuracy lever.
+- **logsumexp-over-time** pooling instead of mean-of-last-25% — smooth max over
+  the whole clip ("is the keyword present *anywhere*", the KWS inductive bias).
+
+**Local audio A/B (plain LCA, 8k subset, 20 ep, DGX):** Tier-1 trains robustly to
+~0.15 at both lr∈{1e-4,3e-4}, while the similarity+mean baseline **dies (~0.01,
+below chance) at both lrs** — i.e. the readout, not lr, is the plain-LCA
+fragility source. Making Tier-1 the default should raise the ceiling AND remove
+the ~18% dead-trial waste (37/200 dead in `lca_plain_cb`).
+
+Dispatch: `scripts/hpo_aurora_lca_plain_tier1.pbs` (plain LCA, no FFN, Tier-1
+readout fixed; search space unchanged — width d_hidden{64,128,256}, n_heads{2,4,8},
+n_anchors, lr, epochs). New env knobs (read by `HpoBase.from_env`):
+`PHASOR_HPO_LOSS`, `PHASOR_HPO_CE_BETA`, `PHASOR_HPO_READOUT_POOL`,
+`PHASOR_HPO_LSE_KAPPA`, `PHASOR_HPO_LEARNABLE_CODES`. (Note: `readout_frac` is
+inert under logsumexp.) Predicted to beat the current 79.3% leader; confirm
+top-K at full data as usual (never rank on the subset proxy alone).

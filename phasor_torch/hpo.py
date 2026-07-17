@@ -63,6 +63,15 @@ class HpoBase:
     # package ModelConfig defaults so HPO/confirm match a fresh model.
     qkv_init_mode: str = "default"    # 'default' (uniform, tau=5) | 'hippo'
     ffn_init_mode: str = "hippo"      # 'hippo' (long tape) | 'default'
+    # Readout / loss (Tier-1). The local TIR readout ablation's biggest levers,
+    # and the audio A/B showed they TRAIN ROBUSTLY where the similarity+mean
+    # baseline dies (fixing the plain-LCA lr-fragility that caused ~18% dead
+    # trials). Fixed per study.
+    loss: str = "similarity"          # 'similarity' | 'softmax_ce' (contrastive)
+    ce_beta: float = 10.0             # softmax temperature (loss == 'softmax_ce')
+    readout_pool: str = "mean"        # 'mean' | 'logsumexp' (smooth max over whole clip = KWS bias)
+    logsumexp_kappa: float = 10.0
+    learnable_codes: bool = False
     alpha_lr_mult: float = 5.0        # ReZero alpha gates train at lr * this
     source: str = "audio"             # 'audio' | 'synthetic' (synthetic = plumbing tests)
     train_path: Optional[str] = None
@@ -117,6 +126,11 @@ class HpoBase:
             d_ff=_i("PHASOR_HPO_D_FF", 0),
             qkv_init_mode=e("PHASOR_HPO_QKV_INIT_MODE", "default"),
             ffn_init_mode=e("PHASOR_HPO_FFN_INIT_MODE", "hippo"),
+            loss=e("PHASOR_HPO_LOSS", "similarity"),
+            ce_beta=float(e("PHASOR_HPO_CE_BETA") or 10.0),
+            readout_pool=e("PHASOR_HPO_READOUT_POOL", "mean"),
+            logsumexp_kappa=float(e("PHASOR_HPO_LSE_KAPPA") or 10.0),
+            learnable_codes=(e("PHASOR_HPO_LEARNABLE_CODES", "0").lower() in ("1", "true", "yes")),
             alpha_lr_mult=float(e("PHASOR_HPO_ALPHA_LR_MULT") or 5.0),
             source=e("PHASOR_HPO_SOURCE", "audio"),
             train_path=e("PHASOR_HPO_TRAIN_PATH") or None,
@@ -278,6 +292,9 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
         "init_scale": float(p["init_scale"]),
         "readout": "ssm",
         "readout_frac": float(p["readout_frac"]),
+        "readout_pool": str(base.readout_pool),
+        "logsumexp_kappa": float(base.logsumexp_kappa),
+        "learnable_codes": bool(base.learnable_codes),
     }
     if base.body == "lca":
         model["n_anchors"] = _resolve_discrete(p, "n_anchors")
@@ -287,6 +304,8 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
     train_cfg: dict[str, Any] = {
         "batch_size": int(base.batch_size),
         "lr": float(p["lr"]),
+        "loss": str(base.loss),
+        "ce_beta": float(base.ce_beta),
         "alpha_lr_mult": float(base.alpha_lr_mult),
         "weight_decay": float(p["weight_decay"]),
         "epochs": epochs,
