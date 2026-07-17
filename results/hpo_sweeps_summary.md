@@ -148,10 +148,9 @@ accuracy.
   the subset.
 
 Confirmed: `lca_plain_cb` (79.3%), `lca_d1_rezero_cb` (63.7%). Still to confirm:
-**`lca_plain_tier1`** (the top priority — could take the crown; needs a confirm
-script pinning `PHASOR_HPO_LOSS=softmax_ce` + `PHASOR_HPO_READOUT_POOL=logsumexp`,
-which `from_env`/`point_to_runconfig` already thread), `confirm_lca_attn_d{1,2}.pbs`
-(depth-without-FFN verdict), and `confirm_lca_d2_rezero_cb.pbs`.
+**`confirm_lca_plain_tier1.pbs`** (the top priority — could take the crown),
+`confirm_lca_attn_d{1,2}.pbs` (depth-without-FFN verdict), and
+`confirm_lca_d2_rezero_cb.pbs`.
 
 ## Notes / caveats
 
