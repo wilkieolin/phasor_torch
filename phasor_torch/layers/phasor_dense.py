@@ -50,12 +50,17 @@ class SpikingArgs:
     t_period: float = 1.0
 
 
-def _default_log_neg_lambda(out_dims: int, init_mode: str) -> Tensor:
-    """Match Julia's `_init_dynamics` for the discrete-path layers."""
+def _default_log_neg_lambda(out_dims: int, init_mode: str,
+                            hippo_tau_max: float | None = None) -> Tensor:
+    """Match Julia's `_init_dynamics` for the discrete-path layers.
+
+    `hippo_tau_max` sets the slowest (longest-memory) HiPPO timescale; None keeps
+    the module default (kernels.HIPPO_TAU_MAX). Inert unless init_mode == 'hippo'.
+    """
     if init_mode == "default":
         return torch.full((out_dims,), math.log(0.2), dtype=torch.float32)
     if init_mode == "hippo":
-        lam, _omega = hippo_legs_diagonal(out_dims)
+        lam, _omega = hippo_legs_diagonal(out_dims, tau_max=hippo_tau_max)
         return torch.log(-lam)
     raise ValueError(f"init_mode must be 'default' or 'hippo', got {init_mode!r}")
 
@@ -91,6 +96,8 @@ class PhasorDense(nn.Module):
                    real scaling).
       use_bias: whether to learn complex bias as (bias_real, bias_imag).
       init_mode: 'default' (log(0.2) per channel) or 'hippo' (HiPPO-LegS).
+      hippo_tau_max: longest (slowest) HiPPO timescale; None -> module default
+                   (kernels.HIPPO_TAU_MAX). Only used when init_mode == 'hippo'.
       init_log_neg_lambda: optional per-channel override (float or 1-D tensor).
       init_weight_scale: post-glorot multiplier on `weight` only (bias
                    untouched). Mirrors Julia's branch_init_scale FFN lever.
@@ -107,6 +114,7 @@ class PhasorDense(nn.Module):
         *,
         use_bias: bool = True,
         init_mode: str = "default",
+        hippo_tau_max: float | None = None,
         init_log_neg_lambda: Optional[float | Tensor] = None,
         init_weight_scale: float = 1.0,
         spk_args: Optional[SpikingArgs] = None,
@@ -131,7 +139,7 @@ class PhasorDense(nn.Module):
         self.weight = nn.Parameter(weight)
 
         if init_log_neg_lambda is None:
-            lnl = _default_log_neg_lambda(self.out_dims, init_mode)
+            lnl = _default_log_neg_lambda(self.out_dims, init_mode, hippo_tau_max)
         elif isinstance(init_log_neg_lambda, (int, float)):
             lnl = torch.full((self.out_dims,), float(init_log_neg_lambda),
                              dtype=torch.float32)

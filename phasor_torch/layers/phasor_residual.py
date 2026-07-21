@@ -130,18 +130,19 @@ class _PhasorFFN(nn.Module):
         branch_init_scale: float,
         spk_args: SpikingArgs,
         init_mode: str = "hippo",
+        hippo_tau_max: float | None = None,
         generator: torch.Generator | None = None,
     ):
         super().__init__()
         self.fc1 = PhasorDense(
             d_model, d_ff, activation, use_bias=True, init_mode=init_mode,
-            init_weight_scale=branch_init_scale, spk_args=spk_args,
-            generator=generator,
+            hippo_tau_max=hippo_tau_max, init_weight_scale=branch_init_scale,
+            spk_args=spk_args, generator=generator,
         )
         self.fc2 = PhasorDense(
             d_ff, d_model, activation, use_bias=True, init_mode=init_mode,
-            init_weight_scale=branch_init_scale, spk_args=spk_args,
-            generator=generator,
+            hippo_tau_max=hippo_tau_max, init_weight_scale=branch_init_scale,
+            spk_args=spk_args, generator=generator,
         )
 
     def forward(self, x: Tensor) -> Tensor:
@@ -188,6 +189,9 @@ class PhasorTransformerBlock(nn.Module):
                 stream; "default" = uniform lambda=-0.2). The attention
                 projections' lambda init is set by the caller via the `attn`
                 layer's own init_mode (config B: uniform read heads).
+      hippo_tau_max: longest (slowest) HiPPO timescale of the FFN tape; None ->
+                module default (kernels.HIPPO_TAU_MAX). Only used when
+                ffn_init_mode == 'hippo'.
       recenter: prepend a PhaseRecenter (circular-mean pre-norm) to each
                 residual branch, skip untouched (default False -- the recenter
                 circular-mean complex_to_angle is a near-origin singularity /
@@ -208,6 +212,7 @@ class PhasorTransformerBlock(nn.Module):
         alpha0: float = 0.1,
         branch_init_scale: float = 0.1,
         ffn_init_mode: str = "hippo",
+        hippo_tau_max: float | None = None,
         recenter: bool = False,
         activation: Callable[[Tensor], Tensor] = normalize_to_unit_circle,
         spk_args: Optional[SpikingArgs] = None,
@@ -225,7 +230,8 @@ class PhasorTransformerBlock(nn.Module):
             ffn = _PhasorFFN(
                 d_model, d_ff_eff, activation,
                 branch_init_scale=branch_init_scale, spk_args=spk,
-                init_mode=ffn_init_mode, generator=generator,
+                init_mode=ffn_init_mode, hippo_tau_max=hippo_tau_max,
+                generator=generator,
             )
             ffn_recenter = PhaseRecenter() if recenter else None
             self.ffn_res = PhasorResidual(ffn, gate=gate, alpha0=alpha0,

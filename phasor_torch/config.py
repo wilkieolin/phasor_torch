@@ -61,6 +61,10 @@ class ModelConfig:
     # (:hippo). HiPPO in the read heads actively hurts long-range routing.
     qkv_init_mode: Literal["default", "hippo"] = "default"
     ffn_init_mode: Literal["default", "hippo"] = "hippo"
+    # Longest (slowest) HiPPO timescale for any hippo-init layer (mainly the FFN
+    # memory tape). None -> kernels.HIPPO_TAU_MAX default (64). Exposed so the
+    # HPO surrogate can tune the tape length in FFN studies.
+    hippo_tau_max: Optional[float] = None
     # Number of stacked blocks between the input embedding and readout. 1 = the
     # canonical single-block chain (unchanged behavior).
     n_blocks: int = 1

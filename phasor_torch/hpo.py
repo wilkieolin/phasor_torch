@@ -63,6 +63,9 @@ class HpoBase:
     # package ModelConfig defaults so HPO/confirm match a fresh model.
     qkv_init_mode: str = "default"    # 'default' (uniform, tau=5) | 'hippo'
     ffn_init_mode: str = "hippo"      # 'hippo' (long tape) | 'default'
+    # Longest HiPPO timescale (hippo tape length). None -> module default (64) AND
+    # (when the study uses hippo) SEARCHED by make_space. Pin via env to fix it.
+    hippo_tau_max: Optional[float] = None
     # Readout / loss (Tier-1). The local TIR readout ablation's biggest levers,
     # and the audio A/B showed they TRAIN ROBUSTLY where the similarity+mean
     # baseline dies (fixing the plain-LCA lr-fragility that caused ~18% dead
@@ -113,6 +116,10 @@ class HpoBase:
             v = e(key)
             return int(v) if v not in (None, "") else None
 
+        def _of(key: str) -> Optional[float]:
+            v = e(key)
+            return float(v) if v not in (None, "") else None
+
         return cls(
             body=e("PHASOR_HPO_BODY", "lca"),
             n_blocks=_i("PHASOR_HPO_N_BLOCKS", 1),
@@ -126,6 +133,8 @@ class HpoBase:
             d_ff=_i("PHASOR_HPO_D_FF", 0),
             qkv_init_mode=e("PHASOR_HPO_QKV_INIT_MODE", "default"),
             ffn_init_mode=e("PHASOR_HPO_FFN_INIT_MODE", "hippo"),
+            # None -> default 64 AND searched (in hippo studies); set to pin/fix.
+            hippo_tau_max=_of("PHASOR_HPO_HIPPO_TAU_MAX"),
             loss=e("PHASOR_HPO_LOSS", "similarity"),
             ce_beta=float(e("PHASOR_HPO_CE_BETA") or 10.0),
             readout_pool=e("PHASOR_HPO_READOUT_POOL", "mean"),
@@ -175,6 +184,19 @@ DISCRETE_CHOICES: dict[str, tuple[int, ...]] = {
 DISCRETE_DEFAULT_IDX = {"d_hidden": 0, "n_heads": 1, "n_anchors": 0}  # 64, 4, 32
 
 
+def _uses_hippo(base: HpoBase) -> bool:
+    """True if the study actually initializes any layer with the hippo tape.
+
+    Under HPO, the input embedding / plain body-dense stay uniform (ModelConfig
+    defaults), so hippo only appears via the FFN (rezero + use_ffn +
+    ffn_init_mode=hippo) or hippo Q/K/V read heads. When neither holds,
+    hippo_tau_max is inert and is NOT added to the search space.
+    """
+    ffn_hippo = (base.block_type == "rezero" and bool(base.use_ffn)
+                 and base.ffn_init_mode == "hippo")
+    return ffn_hippo or base.qkv_init_mode == "hippo"
+
+
 def make_space(base: HpoBase):
     """Build the per-study ConfigSpace. Imports ConfigSpace lazily.
 
@@ -189,6 +211,9 @@ def make_space(base: HpoBase):
     lo_e, hi_e = sorted((int(base.epochs_min), int(base.epochs_max)))
     cs = CS.ConfigurationSpace(seed=base.seed)
     sweep_epochs = lo_e < hi_e
+    # Search the hippo tape length only when the study uses hippo (else inert) and
+    # it is not env-pinned. Log-uniform, bracketing the 64 default by ~2 octaves.
+    sweep_tau = _uses_hippo(base) and base.hippo_tau_max is None
 
     def _idx_hi(name: str) -> int:
         return len(DISCRETE_CHOICES[name]) - 1
@@ -211,6 +236,9 @@ def make_space(base: HpoBase):
         if base.body == "lca":
             params.append(Integer("n_anchors_i", bounds=(0, _idx_hi("n_anchors")),
                                   default=DISCRETE_DEFAULT_IDX["n_anchors"]))
+        if sweep_tau:
+            params.append(Float("hippo_tau_max", bounds=(16.0, 256.0), log=True,
+                                default=64.0))
     except ImportError:  # old API
         import ConfigSpace.hyperparameters as CSH
 
@@ -237,6 +265,10 @@ def make_space(base: HpoBase):
             params.append(CSH.UniformIntegerHyperparameter("n_anchors_i", lower=0,
                                                            upper=_idx_hi("n_anchors"),
                                                            default_value=DISCRETE_DEFAULT_IDX["n_anchors"]))
+        if sweep_tau:
+            params.append(CSH.UniformFloatHyperparameter("hippo_tau_max",
+                                                         lower=16.0, upper=256.0,
+                                                         log=True, default_value=64.0))
 
     try:
         cs.add(params)               # ConfigSpace >= 1.0
@@ -284,6 +316,10 @@ def point_to_runconfig(point: dict, base: HpoBase) -> config.RunConfig:
         "d_ff": int(base.d_ff),
         "qkv_init_mode": str(base.qkv_init_mode),
         "ffn_init_mode": str(base.ffn_init_mode),
+        # hippo_tau_max: searched (in the point) when the study uses hippo and it
+        # is not env-pinned; else the fixed base value (None -> module default 64).
+        "hippo_tau_max": (float(p["hippo_tau_max"]) if "hippo_tau_max" in p
+                          else base.hippo_tau_max),
         "n_classes": int(base.n_classes),
         "n_freqs": int(base.n_freqs),
         "downsample_factor": int(base.downsample_factor),

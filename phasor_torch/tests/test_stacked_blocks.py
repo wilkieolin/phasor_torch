@@ -249,3 +249,39 @@ def test_use_ffn_passthrough():
              "epochs": 1}
     run = hpo.point_to_runconfig(point, base)
     assert run.model.use_ffn is False
+
+
+# --------------------------------------------------------------------------
+# hippo_tau_max (tunable longest HiPPO timescale)
+# --------------------------------------------------------------------------
+
+
+def test_hippo_tau_max_sets_ffn_tape_length():
+    """The FFN hippo tape's slowest channel = 1/hippo_tau_max; None -> 64."""
+    import math
+    # default (None) -> longest tau = 64 -> min |lambda| = 1/64
+    _, sch64 = build_model(_cfg("lca", n_blocks=1, block_type="rezero"))
+    fc1_64 = sch64["block"].ffn_res.sublayer.fc1
+    assert torch.isclose(torch.exp(fc1_64.log_neg_lambda).min(),
+                         torch.tensor(1.0 / 64.0), atol=1e-4)
+    # override -> longest tau = 128 -> min |lambda| = 1/128
+    cfg = ModelConfig(frontend="none", body="lca", d_hidden=32, n_heads=4,
+                      n_anchors=8, in_dims=32, n_classes=10, n_blocks=1,
+                      block_type="rezero", hippo_tau_max=128.0)
+    _, sch128 = build_model(cfg)
+    fc1_128 = sch128["block"].ffn_res.sublayer.fc1
+    assert torch.isclose(torch.exp(fc1_128.log_neg_lambda).min(),
+                         torch.tensor(1.0 / 128.0), atol=1e-4)
+
+
+def test_hippo_tau_max_passthrough():
+    base = hpo.HpoBase(body="lca", source="synthetic", n_blocks=1,
+                       block_type="rezero")
+    point = {"lr": 3e-4, "d_hidden_i": 0, "n_heads_i": 1, "n_anchors_i": 0,
+             "init_scale": 3.0, "readout_frac": 0.25, "weight_decay": 1e-8,
+             "epochs": 1, "hippo_tau_max": 100.0}
+    run = hpo.point_to_runconfig(point, base)
+    assert run.model.hippo_tau_max == 100.0
+    # not in point -> falls back to base (None default)
+    del point["hippo_tau_max"]
+    assert hpo.point_to_runconfig(point, base).model.hippo_tau_max is None

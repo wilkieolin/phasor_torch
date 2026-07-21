@@ -193,6 +193,39 @@ def test_make_space_lsa_no_anchors():
     assert "epochs" not in names   # fixed bounds -> not a swept dimension
 
 
+def test_make_space_searches_hippo_tau_only_when_hippo_used():
+    pytest.importorskip("ConfigSpace")
+
+    def names(base):
+        cs = hpo.make_space(base)
+        return set(cs.keys()) if hasattr(cs, "keys") \
+            else set(cs.get_hyperparameter_names())
+
+    # rezero + FFN + hippo tape -> tau searched
+    ffn = hpo.HpoBase(body="lca", block_type="rezero", use_ffn=True,
+                      ffn_init_mode="hippo")
+    assert "hippo_tau_max" in names(ffn)
+    # attn-only (no FFN) -> hippo inert -> NOT searched
+    attn = hpo.HpoBase(body="lca", block_type="rezero", use_ffn=False)
+    assert "hippo_tau_max" not in names(attn)
+    # plain -> NOT searched
+    plain = hpo.HpoBase(body="lca", block_type="plain")
+    assert "hippo_tau_max" not in names(plain)
+    # env-pinned -> fixed, NOT searched even though hippo is used
+    pinned = hpo.HpoBase(body="lca", block_type="rezero", use_ffn=True,
+                         ffn_init_mode="hippo", hippo_tau_max=48.0)
+    assert "hippo_tau_max" not in names(pinned)
+
+
+def test_uses_hippo_flag():
+    assert hpo._uses_hippo(hpo.HpoBase(block_type="rezero", use_ffn=True,
+                                       ffn_init_mode="hippo"))
+    assert not hpo._uses_hippo(hpo.HpoBase(block_type="rezero", use_ffn=False))
+    assert not hpo._uses_hippo(hpo.HpoBase(block_type="plain"))
+    assert hpo._uses_hippo(hpo.HpoBase(block_type="rezero", use_ffn=True,
+                                       ffn_init_mode="hippo", qkv_init_mode="hippo"))
+
+
 def test_n_anchors_includes_256():
     assert hpo.DISCRETE_CHOICES["n_anchors"] == (32, 64, 128, 256)
     assert hpo._resolve_discrete({"n_anchors_i": 3}, "n_anchors") == 256

@@ -102,7 +102,7 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
     # plain-path body dense below.
     input_layer = PhasorDense(
         embed_in, cfg.d_hidden, normalize_to_unit_circle,
-        use_bias=True, init_mode=cfg.init_mode,
+        use_bias=True, init_mode=cfg.init_mode, hippo_tau_max=cfg.hippo_tau_max,
         init_log_neg_lambda=cfg.init_log_neg_lambda,
         spk_args=spk, generator=generator,
     )
@@ -114,13 +114,14 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
             return PhasorLSA(
                 cfg.d_hidden, cfg.d_hidden, n_heads=cfg.n_heads,
                 init_scale=cfg.init_scale, init_mode=cfg.qkv_init_mode,
-                spk_args=spk, generator=generator,
+                hippo_tau_max=cfg.hippo_tau_max, spk_args=spk, generator=generator,
             )
         if cfg.body == "lca":
             return PhasorLCA(
                 cfg.d_hidden, cfg.d_hidden, n_heads=cfg.n_heads,
                 n_anchors=cfg.n_anchors, init_scale=cfg.init_scale,
-                init_mode=cfg.qkv_init_mode, spk_args=spk, generator=generator,
+                init_mode=cfg.qkv_init_mode, hippo_tau_max=cfg.hippo_tau_max,
+                spk_args=spk, generator=generator,
             )
         raise ValueError(f"unknown body kind {cfg.body!r}")
 
@@ -143,8 +144,8 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
             block = PhasorTransformerBlock(
                 cfg.d_hidden, attn, d_ff=cfg.d_ff, use_ffn=cfg.use_ffn,
                 gate=cfg.gate, branch_init_scale=cfg.branch_init_scale,
-                ffn_init_mode=cfg.ffn_init_mode, recenter=cfg.recenter,
-                spk_args=spk, generator=generator,
+                ffn_init_mode=cfg.ffn_init_mode, hippo_tau_max=cfg.hippo_tau_max,
+                recenter=cfg.recenter, spk_args=spk, generator=generator,
             )
             blocks.append((f"block{suffix}", block))
     elif cfg.block_type == "plain":
@@ -153,7 +154,8 @@ def build_model(cfg: ModelConfig, generator: torch.Generator | None = None
             attn = _make_body()
             dense = PhasorDense(
                 cfg.d_hidden, cfg.d_hidden, activation=nn.Identity(),
-                use_bias=False, init_mode=cfg.init_mode, init_log_neg_lambda=eff_lnl,
+                use_bias=False, init_mode=cfg.init_mode,
+                hippo_tau_max=cfg.hippo_tau_max, init_log_neg_lambda=eff_lnl,
                 spk_args=spk, generator=generator,
             )
             if attn is not None:

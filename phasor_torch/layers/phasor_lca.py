@@ -71,6 +71,7 @@ class PhasorLCA(nn.Module):
         *,
         init_scale: float = 3.0,
         init_mode: str = "default",
+        hippo_tau_max: float | None = None,
         spk_args: Optional[SpikingArgs] = None,
         generator: torch.Generator | None = None,
     ):
@@ -85,7 +86,8 @@ class PhasorLCA(nn.Module):
         self.n_anchors = int(n_anchors)
         self.activation = activation
         spk = spk_args or SpikingArgs()
-        kwargs = dict(use_bias=False, init_mode=init_mode, spk_args=spk)
+        kwargs = dict(use_bias=False, init_mode=init_mode,
+                      hippo_tau_max=hippo_tau_max, spk_args=spk)
         self.k_proj = PhasorDense(in_dims, d_model, generator=generator, **kwargs)
         self.v_proj = PhasorDense(in_dims, d_model, generator=generator, **kwargs)
         # Trainable anchor bank: (d_model, n_anchors) Phase, init uniform in [-1, 1].
