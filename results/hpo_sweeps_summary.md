@@ -61,11 +61,11 @@ and `lca_attn_d{1,2}` are ReZero attention residuals with the FFN removed
 | `lca_d1_rezero` (rezero, recenter ON) | 54.0% | — (not run) | 29.1% | 31 | 30 | 139 | (cfgB, recenter default was on) |
 | `lca_d1_rezero_norecenter` (rezero, recenter OFF) | 49.5% | — (not run) | 22.5% | 51 | 32 | 117 | (removed `_norecenter` script) |
 | `lca_d1_rezero_cb` (rezero+FFN, current defaults) | 62.6% | 63.7% | 22.2% | 49 | 19 | 132 | `hpo_aurora_d1_rezero.pbs` |
-| `lca_d2_rezero_cb` (rezero+FFN d2, current defaults) | 67.2% | *pending* | 30.0% | 69 | 13 | 118 | `hpo_aurora_d2.pbs` |
+| `lca_d2_rezero_cb` (rezero+FFN d2, current defaults) | 67.2% | 69.3% | 30.0% | 69 | 13 | 118 | `hpo_aurora_d2.pbs` |
 | **`lca_plain_cb`** (d1 **plain**, current defaults) | 74.8% | 79.3% | 56.4% | 37 | 0 | 163 | `hpo_aurora_lca_plain_cb.pbs` |
-| 🥇 **`lca_plain_tier1`** (d1 plain, **Tier-1 readout**) | **81.9%** | *pending* | **68.3%** | **11** | 0 | **189** | `hpo_aurora_lca_plain_tier1.pbs` |
-| `lca_attn_d1` (attn-only, **no FFN**, d1) | 46.5% | *pending* | 25.5% | 54 | 0 | 146 | `hpo_aurora_lca_attn_d1.pbs` |
-| `lca_attn_d2` (attn-only, **no FFN**, d2) | 65.6% | *pending* | 27.2% | 44 | 0 | 156 | `hpo_aurora_lca_attn_d2.pbs` |
+| 🥇 **`lca_plain_tier1`** (d1 plain, **Tier-1 readout**) | **81.9%** | **82.3%** | **68.3%** | **11** | 0 | **189** | `hpo_aurora_lca_plain_tier1.pbs` |
+| `lca_attn_d1` (attn-only, **no FFN**, d1) | 46.5% | 47.1% | 25.5% | 54 | 0 | 146 | `hpo_aurora_lca_attn_d1.pbs` |
+| `lca_attn_d2` (attn-only, **no FFN**, d2) | 65.6% | 47.7% | 27.2% | 44 | 0 | 156 | `hpo_aurora_lca_attn_d2.pbs` |
 
 \*single best trial's subset (16k) test_acc — noisy exploration objective.
 †best of the **top-8 full-data confirm** (`confirm.py` re-trains at full ~51k
@@ -76,25 +76,36 @@ Confirm results live in PBS stdout (`phasor_confirm*.o*`), not `history.json`
 
 ### Full-data confirmation detail (top-8)
 
-Five studies confirmed: the two original `plain`, the pre-cfgB depth-2 ReZero,
-and the two current-defaults d1 runs (`lca_plain_cb`, `lca_d1_rezero_cb`).
+Nine studies confirmed (all sweeps except pre-cfgB `lca_d1_rezero*` variants).
 
 | study | best full | incumbent (subset-#1) full | key finding |
 |---|---|---|---|
-| **`lca_plain_cb`** (plain, current defaults) | **79.3%** (subset-#2) | 71.0% | **NEW BEST** — current defaults edge past the old plain LCA (78.1→79.3); subset rank ≠ full rank *again* (winner was subset-#2, incumbent → 71.0%) |
-| `lca` (plain, pre-cfgB) | 78.1% (subset-6th) | 73.7% | subset rank ≠ full rank — the full winner was the subset-**6th** config; subset-#1 fell to mid-pack |
-| `lsa` (plain, pre-cfgB) | 63.3% (subset-#1) | 63.3% | full-data LCA≫LSA gap blows out to **~15 pt** (78.1 vs 63.3), vs ~2.4 pt on the subset; lr anti-correlates with full acc (low lr wins) |
-| `lca_d1_rezero_cb` (d1 FFN+ReZero, current) | 63.7% (subset-#1) | 63.7% | the FFN d1 block confirms **~15.6 pt below plain** (63.7 vs 79.3); many configs collapse peak→final (r1 44→9, r3 36→0.4, r5 48→9) — FFN instability, restore_best saves the peak |
-| `lca_d2_rezero` (d2 FFN+ReZero, pre-cfgB) | 61.7% (subset-#4) | 60.7% best / **35.8% final** | depth-2 does **not** help even at full data (61.7 vs plain 79.3, below LSA 63.3); severe peak→final collapse (−25 pt) — instability persists at depth |
+| 🥇 **`lca_plain_tier1`** (plain, **Tier-1 readout**) | **82.3%** (subset-#2) | 76.5% | **NEW BEST overall.** Readout-only swap (softmax-CE + logsumexp) beats the similarity-readout leader (79.3→82.3); also *retains* the peak far better (full_final 79–80% for top configs vs the 5–9 pt drops elsewhere) |
+| `lca_plain_cb` (plain, similarity readout) | 79.3% (subset-#2) | 71.0% | current defaults edged past the old plain LCA (78.1→79.3); subset≠full rank (winner subset-#2) |
+| `lca` (plain, pre-cfgB) | 78.1% (subset-6th) | 73.7% | subset rank ≠ full rank — full winner was subset-**6th** |
+| `lca_d2_rezero_cb` (d2 FFN+ReZero, current) | 69.3% (subset-#5) | 58.1% | **FFN + depth helps at full data: d1 63.7 → d2 69.3 (+5.6 pt)** — best of the attention-stack variants, but still ~13 pt below plain-tier1 |
+| `lca_d1_rezero_cb` (d1 FFN+ReZero, current) | 63.7% (subset-#1) | 63.7% | FFN d1 confirms ~15.6 pt below plain-cb; several configs collapse peak→final (44→9, 36→0.4) — FFN instability, restore_best saves the peak |
+| `lsa` (plain, pre-cfgB) | 63.3% (subset-#1) | 63.3% | full-data LCA≫LSA gap ~19 pt (82.3 vs 63.3); lr anti-correlates with full acc |
+| `lca_d2_rezero` (d2 FFN+ReZero, pre-cfgB) | 61.7% (subset-#4) | 60.7% / 35.8% final | depth-2 (pre-cfgB) ≈ its cfgB cousin minus the tuning; instability persists (−25 pt tail) |
+| `lca_attn_d2` (attn-only, **no FFN**, d2) | 47.7% (subset-#4) | **35.4%** | ⚠️ **depth-without-FFN was a subset mirage** — the subset d1→d2 +19 pt gain VANISHES at full data (d2 47.7 ≈ d1 47.1); the subset-#1 config collapsed to 35.4% |
+| `lca_attn_d1` (attn-only, **no FFN**, d1) | 47.1% (subset-#4) | 40.0% | attn-only is the **worst** family (~47 pt), ~16 pt below even the FFN d1 — the FFN is doing real work |
 
-**The best result overall is now 79.3% — vanilla no-FFN LCA at current defaults
-(`lca_plain_cb`), a new high past the old 78.1%.** Every FFN+ReZero variant
-confirmed so far sits ~15 pt below vanilla plain (63.7 d1, 61.7 d2), so the FFN
-depth stack still has not paid off. Whether **attn-only depth** (`lca_attn_d2`,
-which led d1 by +19 pt on the subset with 0 NaN) closes any of that gap is the
-key remaining question — pending `confirm_lca_attn_d{1,2}.pbs`. Never rank on the
-subset proxy alone — confirm top-K, not top-1 (held again here: plain winner was
-subset-#2, not #1).
+**The best result overall is now 82.3% — plain LCA with the Tier-1 readout
+(`lca_plain_tier1`).** Two clean full-data lessons from this round:
+
+1. **Readout > architecture.** Swapping only the readout (similarity+mean →
+   softmax-CE + logsumexp) on the *same* plain body added +3 pt over the prior
+   record (79.3→82.3) and dramatically improved peak retention. It is the single
+   biggest lever found, and it holds at full data (subset 81.9 → full 82.3).
+2. **The FFN is load-bearing; depth only helps *with* it.** At full data:
+   attn-only (no FFN) d1 47.1 ≈ d2 47.7 (depth gives ~nothing) and is the worst
+   family; add the FFN and it jumps to 63.7 (d1) → 69.3 (d2), where depth finally
+   pays +5.6 pt. So the earlier subset reading — "depth scales without the FFN,
+   +19 pt" — was a **proxy artifact** that the full-data confirm reversed. Even
+   so, the best attention-stack (d2 FFN, 69.3) trails plain-tier1 by ~13 pt.
+
+Confirm top-K, not top-1: held again everywhere (plain-tier1 winner subset-#2;
+attn-d2 subset-#1 → 35.4%).
 
 > **Reconstruction caveat (d2):** `confirm_lca_d2.pbs` rebuilds each top-K point
 > under the *current* `HpoBase` defaults (config-B-ish), **not** the exact
@@ -106,51 +117,47 @@ subset-#2, not #1).
 ### Current-defaults sweep round — subset results
 
 Six sweeps at the current package defaults (uniform+bias input, grad-gate,
-hippo τ≤64). Two are full-data confirmed (`lca_plain_cb` → **79.3%**,
-`lca_d1_rezero_cb` → 63.7%; see the confirmation-detail table above); the other
-four are subset-only. The subset proxy has repeatedly mis-ranked vs full data,
-so read the un-confirmed rows as leaderboards of *candidate pools*, not final
-accuracy.
+hippo τ≤64). **All six are now full-data confirmed** — see the confirmation-
+detail table above for the numbers that matter. The subset columns below are
+kept for the record and to show where the proxy misled (notably `lca_attn_d2`).
 
-| study | peak | median | ≥50% | dead | NaN | vs. its predecessor |
+| study | subset peak | subset median | dead | NaN | **full confirm** | subset→full |
 |---|---|---|---|---|---|---|
-| 🥇 **`lca_plain_tier1`** (plain d1, **Tier-1 readout**) | **81.9%** | **68.3%** | 142 | **11** | 0 | vs `lca_plain_cb`: peak 74.8→81.9, **median 56.4→68.3, dead 37→11** |
-| **`lca_plain_cb`** (plain d1) | 74.8% | 56.4% | 116 | 37 | 0 | vs `lca` (pre-cfgB): peak 66.3→74.8, **median 21.7→56.4**, ≥50% 20→116 |
-| `lca_attn_d2` (attn-only, no FFN) | 65.6% | 27.2% | 3 | 44 | 0 | depth **d1→d2: 46.5→65.6** (+19 pt) |
-| `lca_attn_d1` (attn-only, no FFN) | 46.5% | 25.5% | 0 | 54 | 0 | d1 anchor for the depth ladder |
-| `lca_d2_rezero_cb` (rezero+FFN d2) | 67.2% | 30.0% | 28 | 13 | — | vs `lca_d1_rezero_cb`: peak 62.6→67.2 |
-| `lca_d1_rezero_cb` (rezero+FFN d1) | 62.6% | 22.2% | 13 | 19 | — | (input-embedding fix row) |
+| 🥇 **`lca_plain_tier1`** (plain, Tier-1 readout) | **81.9%** | **68.3%** | **11** | 0 | **82.3%** | ✓ tracked |
+| **`lca_plain_cb`** (plain) | 74.8% | 56.4% | 37 | 0 | 79.3% | ✓ tracked |
+| `lca_d2_rezero_cb` (rezero+FFN d2) | 67.2% | 30.0% | 69 | 13 | 69.3% | ✓ tracked |
+| `lca_attn_d2` (attn-only, no FFN) | 65.6% | 27.2% | 44 | 0 | **47.7%** | ✗ **proxy lied** |
+| `lca_d1_rezero_cb` (rezero+FFN d1) | 62.6% | 22.2% | 49 | 19 | 63.7% | ✓ tracked |
+| `lca_attn_d1` (attn-only, no FFN) | 46.5% | 25.5% | 54 | 0 | 47.1% | ✓ tracked |
 
-**Answering the questions (on the subset proxy):**
+**Findings (now with full-data confirms):**
 
-- **(0) The Tier-1 readout is the biggest lever yet.** Swapping ONLY the readout
-  (similarity+mean → **softmax-CE + logsumexp**) on the plain-LCA leader lifts
-  subset peak 74.8→**81.9%**, median 56.4→**68.3%**, and slashes dead trials
-  **37→11** (healthy 163→189) — exactly the predicted (a) higher ceiling +
-  (b) less dead-trial waste. Still 0 NaN. Its incumbent also shifts to a **bigger
-  model** (d256/h8 vs plain_cb's d128/h2), i.e. the contrastive+KWS readout lets
-  width/heads pay off. **81.9% subset is above the reigning 79.3% confirmed
-  leader** — very promising, but not yet confirmed at full data.
+- **(0) The Tier-1 readout is the biggest lever — and it holds at full data.**
+  Readout-only swap (similarity+mean → **softmax-CE + logsumexp**) on the
+  plain-LCA leader: subset peak 74.8→**81.9%**, median 56.4→**68.3%**, dead
+  **37→11**, 0 NaN — and **full-data confirm 82.3%, the new record** (subset
+  81.9 → full 82.3, the proxy tracked cleanly). Its incumbent also grows to a
+  **bigger model** (d256/h8 vs plain_cb's d128/h2): the contrastive+KWS readout
+  lets width/heads pay off, and it retains the peak far better (top configs hold
+  full_final ~79–80%). **Readout choice beat every architecture change tried.**
 
 - **(a) Is plain LCA still the leader? Emphatically yes — and it CONFIRMED to a
   new best.** `lca_plain_cb`: 74.8% peak / **56.4% median** / 0 NaN on the subset
   (old `lca`: 66.3 / 21.7, ≥50% count 20→116), and **full-data confirm = 79.3%**,
-  edging past the old 78.1% record. The uniform+bias input + grad-gate turned
-  plain LCA from "high ceiling, mostly-dead pool" into a broad robust basin *and*
-  nudged the ceiling up. It dominates every other topology at both scales.
-- **(b) Does stacking LCA blocks *without* the FFN scale with depth? Yes.**
-  Attn-only ReZero: **d1 46.5% → d2 65.6% peak** (+19 pt), median 25.5→27.2.
-  Depth clearly helps once the FFN is removed — and, notably, **attn-only has 0
-  NaN at both depths**, versus 13–32 NaN in every rezero+FFN sweep. Removing the
-  FFN eliminated the blow-ups. The small residual gap to `lca_d2_rezero_cb`
-  (67.2 peak) shows the FFN buys ~1.6 pt of peak at the cost of instability
-  (13 NaN, 69 dead vs 44). Neither depth-2 variant reaches plain d1 (74.8) on
-  the subset.
+  edging past the old 78.1% record — later beaten by the Tier-1 readout (82.3%).
+- **(b) Does stacking LCA blocks *without* the FFN scale with depth? NO — the
+  subset said yes, full data reversed it.** Subset: attn-only d1 46.5 → d2 65.6
+  (+19 pt) looked like clean depth scaling. **Full-data confirm kills it: d1 47.1
+  ≈ d2 47.7** — depth gives essentially nothing, and the subset-#1 d2 config
+  collapsed to 35.4%. Worse, attn-only is the **worst family full-data** (~47 pt,
+  ~16 pt below even the FFN d1). The FFN is load-bearing: adding it lifts d1 to
+  63.7 and d2 to 69.3, and **depth only pays off *with* the FFN** (+5.6 pt d1→d2).
+  The 0-NaN advantage of removing the FFN was real but bought nothing in accuracy.
+  Net: no attention-stack variant reaches plain (best d2-FFN 69.3 vs plain-tier1
+  82.3). **A single plain LCA block with the right readout beats every stack.**
 
-Confirmed: `lca_plain_cb` (79.3%), `lca_d1_rezero_cb` (63.7%). Still to confirm:
-**`confirm_lca_plain_tier1.pbs`** (the top priority — could take the crown),
-`confirm_lca_attn_d{1,2}.pbs` (depth-without-FFN verdict), and
-`confirm_lca_d2_rezero_cb.pbs`.
+All six current-defaults sweeps confirmed. Remaining un-confirmed sweeps are only
+the older pre-cfgB `lca_d1_rezero` / `…_norecenter` (superseded, low priority).
 
 ## Notes / caveats
 
@@ -161,26 +168,26 @@ Confirmed: `lca_plain_cb` (79.3%), `lca_d1_rezero_cb` (63.7%). Still to confirm:
   input); `…_norecenter` vs `…_cb` isolates the **input embedding**
   (uniform τ=5 + bias vs hippo τ≤64 no-bias), both recenter OFF.
 - **Key findings so far:**
-  - **Best confirmed result overall: 79.3% full-data (vanilla no-FFN LCA at
-    current defaults, `lca_plain_cb`)** — a new high past the old `lca` 78.1%.
-    Current defaults preserved the leader and nudged the ceiling up. LSA sits at
-    63.3%, so the LCA≫LSA advantage (~16 pt) is a full-data phenomenon.
-  - **The Tier-1 readout (softmax-CE + logsumexp) is the biggest single lever
-    (subset).** On the plain-LCA leader, readout-only swap → subset peak
-    74.8→81.9%, median 56.4→68.3%, dead 37→11; incumbent grows to d256/h8. This
-    81.9% subset tops the 79.3% confirmed leader — **confirm pending, likely the
-    next record.**
-  - **Every FFN+ReZero variant confirms ~15 pt below vanilla plain:** d1
-    `lca_d1_rezero_cb` = 63.7%, d2 `lca_d2_rezero` = 61.7% — the FFN depth stack
-    has not paid off at any depth or data scale, and its confirms show severe
-    peak→final collapse (d1 configs 44→9 / 36→0.4; d2 −25 pt). restore_best saves
-    the peak, but the instability is real. Attn-only depth (no FFN) is the
-    remaining hope — pending `confirm_lca_attn_d{1,2}.pbs`.
-  - Plain d1 dominates the subset (leader 74.8% at current defaults, `lca_plain_cb`)
-    with 0 NaN, but is depth-1 only. See the current-defaults subset round above.
-  - **Depth scales without the FFN (subset):** attn-only ReZero d1→d2 = 46.5→65.6%.
-    Removing the FFN also removes the NaN (0 vs 13–32 in every rezero+FFN sweep) —
-    the FFN, not the ReZero stack, is the blow-up source at depth.
+  - **Best confirmed result overall: 82.3% full-data — plain LCA + Tier-1 readout
+    (`lca_plain_tier1`).** Readout-only swap (similarity+mean → softmax-CE +
+    logsumexp) on the same plain body beat the prior 79.3% record by +3 pt and the
+    proxy tracked cleanly (subset 81.9 → full 82.3). **Readout choice is the
+    single biggest lever — it beat every architecture change tried.** LSA sits at
+    63.3%, so the LCA≫LSA advantage (~19 pt) is a full-data phenomenon.
+  - **Depth needs the FFN; attention-stacking never beats a single plain block.**
+    Full-data: attn-only (no FFN) d1 47.1 ≈ d2 47.7 (depth gives ~nothing, worst
+    family); +FFN lifts to d1 63.7 → d2 69.3, where depth finally pays +5.6 pt.
+    But the best stack (69.3) still trails plain-tier1 by ~13 pt. **The earlier
+    subset claim "depth scales without the FFN, +19 pt" was a proxy artifact the
+    full-data confirm reversed** (attn-d2 subset-#1 → 35.4% full).
+  - **Confirmed leaderboard:** `lca_plain_tier1` 82.3 > `lca_plain_cb` 79.3 >
+    `lca` 78.1 ≫ `lca_d2_rezero_cb` 69.3 > `lca_d1_rezero_cb` 63.7 > `lsa` 63.3 >
+    `lca_d2_rezero` 61.7 > `lca_attn_d2` 47.7 > `lca_attn_d1` 47.1.
+  - FFN+ReZero confirms show peak→final collapse (d1 configs 44→9 / 36→0.4; d2
+    −25 pt); restore_best saves the peak, but the instability is real. The Tier-1
+    readout notably *fixes* retention too (top configs hold full_final ~79–80%).
+  - Removing the FFN removes the NaN (attn-only 0 NaN vs 13–32 in every rezero+FFN
+    sweep) — the FFN is the blow-up source — but that stability bought no accuracy.
   - NaN blow-ups appear only in rezero **+ FFN** blocks, only at high lr (5–10e-3).
   - recenter is NOT the NaN cause (removing it left NaN ~unchanged, 30→32) and
     was net-helpful on audio (dead 31 vs 51) — so it was kept as a knob but the
