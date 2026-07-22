@@ -52,7 +52,11 @@ mkdir -p "$PHASOR_HPO_OUTDIR"
 
 export PHASOR_CONFIRM_RESULTS=${PHASOR_CONFIRM_RESULTS:-/flare/EE-ECP/wolin/hpo_runs/lca_d1_rezero_tier1/results.csv}
 export PHASOR_CONFIRM_TOPK=${PHASOR_CONFIRM_TOPK:-8}
-# export PHASOR_CONFIRM_EPOCHS=80
+# Train all top-K for a fixed 80-epoch budget (overridable). The swept epoch caps
+# were tuned on the 16k subset and truncated several strong configs mid-descent
+# (loss still decreasing at stop); full data (~3x) needs more room. Let the
+# test_acc early-stop (patience 6) decide when to quit within this budget.
+export PHASOR_CONFIRM_EPOCHS=${PHASOR_CONFIRM_EPOCHS:-80}
 
 TILES_PER_NODE=12
 NODES=$(sort -u "$PBS_NODEFILE" | wc -l)
