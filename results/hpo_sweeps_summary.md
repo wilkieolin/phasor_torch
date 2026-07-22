@@ -36,6 +36,9 @@ hippo QKV, RNN_KW λ=−0.1 input, recenter off).
 | `lca_attn_d1` | LCA · 1 · rezero | **uniform τ=5 + bias** | uniform, no-bias | **none** (`use_ffn=0`) | off / on | ✓ · ≤64 · cfgB (current) |
 | `lca_attn_d2` | LCA · 2 · rezero | **uniform τ=5 + bias** | uniform, no-bias | **none** (`use_ffn=0`) | off / on | ✓ · ≤64 · cfgB (current) |
 | `lca_plain_tier1` | LCA · 1 · plain | **uniform τ=5 + bias** | uniform, no-bias | **none** (single `dense`) | none / none | ✓ · ≤64 · cfgB + **Tier-1 readout** |
+| `lca_attn_d1_tier1` | LCA · 1 · rezero | **uniform τ=5 + bias** | uniform, no-bias | **none** (`use_ffn=0`) | off / on | ✓ · ≤64 · cfgB + **Tier-1** |
+| `lca_d1_rezero_tier1` | LCA · 1 · rezero | **uniform τ=5 + bias** | uniform, no-bias | hippo, bias-on | off / on | ✓ · **τ searched [16,256]** · cfgB + **Tier-1** |
+| `lca_d2_rezero_tier1` | LCA · 2 · rezero | **uniform τ=5 + bias** | uniform, no-bias | hippo, bias-on | off / on | ✓ · **τ searched [16,256]** · cfgB + **Tier-1** |
 
 **Tier-1 readout** (`lca_plain_tier1` only): identical to `lca_plain_cb` except
 the readout uses **softmax-CE loss** (contrastive, `PHASOR_HPO_LOSS=softmax_ce`)
@@ -66,8 +69,12 @@ and `lca_attn_d{1,2}` are ReZero attention residuals with the FFN removed
 | 🥇 **`lca_plain_tier1`** (d1 plain, **Tier-1 readout**) | **81.9%** | **82.3%** | **68.3%** | **11** | 0 | **189** | `hpo_aurora_lca_plain_tier1.pbs` |
 | `lca_attn_d1` (attn-only, **no FFN**, d1) | 46.5% | 47.1% | 25.5% | 54 | 0 | 146 | `hpo_aurora_lca_attn_d1.pbs` |
 | `lca_attn_d2` (attn-only, **no FFN**, d2) | 65.6% | 47.7% | 27.2% | 44 | 0 | 156 | `hpo_aurora_lca_attn_d2.pbs` |
+| `lca_attn_d1_tier1` (attn-only no FFN, **Tier-1**) | 65.7% | *pending* | 40.7% | 18 | 0 | 182 | `hpo_aurora_lca_attn_d1_tier1.pbs` |
+| `lca_d1_rezero_tier1` (rezero+FFN d1, **Tier-1**) | 80.7% | *pending* | 58.3% | 5 | 0 | 195 | `hpo_aurora_lca_d1_rezero_tier1.pbs` |
+| `lca_d2_rezero_tier1` (rezero+FFN d2, **Tier-1**) | 81.0% | *pending* | 64.2% | 6 | 0 | 185 | `hpo_aurora_lca_d2_rezero_tier1.pbs` |
 
 \*single best trial's subset (16k) test_acc — noisy exploration objective.
+(`lca_d2_rezero_tier1` completed 189/200 evals — hit the 24 h walltime.)
 †best of the **top-8 full-data confirm** (`confirm.py` re-trains at full ~51k
 data, no subset; `best.h5` = restored peak weights). **This is the real
 headline metric** — full data lifts every config well above the subset proxy.
@@ -159,6 +166,41 @@ kept for the record and to show where the proxy misled (notably `lca_attn_d2`).
 All six current-defaults sweeps confirmed. Remaining un-confirmed sweeps are only
 the older pre-cfgB `lca_d1_rezero` / `…_norecenter` (superseded, low priority).
 
+### Tier-1 readout on the stacks — the readout confound was real (subset; confirms pending)
+
+The original stack studies all ran on the weak similarity+mean readout, which
+confounded every depth/FFN conclusion. Re-running the stacks with the Tier-1
+readout (softmax-CE + logsumexp) — same bodies, readout-only change — moves them
+enormously on the subset, and for the FFN sweeps `hippo_tau_max` was searched:
+
+| study | old-readout subset | **Tier-1 subset** | dead | NaN | note |
+|---|---|---|---|---|---|
+| attn-only d1 (`lca_attn_d1`) | 46.5% | **65.7%** | 54→18 | 0→0 | +19 pt |
+| rezero+FFN d1 (`lca_d1_rezero_cb`) | 62.6% | **80.7%** | 49→5 | **19→0** | +18 pt, NaN gone |
+| rezero+FFN d2 (`lca_d2_rezero_cb`) | 67.2% | **81.0%** | 69→6 | **13→0** | +14 pt, NaN gone (189 evals) |
+
+Three subset takeaways (⚠️ subset — full-data confirm still required, given how
+badly the proxy mis-ranked the *old-readout* attn-d2):
+
+1. **The readout fix lifts every stack ~14–19 pt** — the earlier "stacks lose by
+   ~15 pt" gap was largely a readout artifact, exactly the confound flagged.
+2. **The Tier-1 readout eliminates the FFN NaN blow-ups** (19→0 at d1, 13→0 at d2)
+   and crushes dead trials (→5–6). The FFN instability was tied to the
+   similarity+mean readout/loss, not intrinsic to the FFN.
+3. **The FFN stacks now sit essentially level with plain on the subset** —
+   plain-tier1 81.9, d2-FFN-tier1 81.0, d1-FFN-tier1 80.7 (attn-only still trails
+   at 65.7, so the FFN still carries the stack). Whether depth/FFN actually catch
+   plain at *full data* is the open question — **confirms pending.**
+
+**`hippo_tau_max` (newly searchable) prefers a longer tape than the old fixed 64:**
+top-8 configs cluster at **τ≈100–180** (best 124 @ d1, 113 @ d2; 200-trial mean
+~95–110). Exposing it was worthwhile — the previous hard-coded 64 was below the
+optimum. (Only affects the FFN family, still the losing side pending confirms.)
+
+Not yet run: `lca_attn_d2_tier1` (the depth-without-FFN re-test under Tier-1).
+No Tier-1 stack confirms yet — deferred until the surrogate landed, which it now
+has; the FFN-tier1 stacks (80.7/81.0 subset) are the clear confirm candidates.
+
 ## Notes / caveats
 
 - **Confounded across generations.** The three pre-cfgB rows ran with old code
@@ -174,12 +216,21 @@ the older pre-cfgB `lca_d1_rezero` / `…_norecenter` (superseded, low priority)
     proxy tracked cleanly (subset 81.9 → full 82.3). **Readout choice is the
     single biggest lever — it beat every architecture change tried.** LSA sits at
     63.3%, so the LCA≫LSA advantage (~19 pt) is a full-data phenomenon.
-  - **Depth needs the FFN; attention-stacking never beats a single plain block.**
-    Full-data: attn-only (no FFN) d1 47.1 ≈ d2 47.7 (depth gives ~nothing, worst
-    family); +FFN lifts to d1 63.7 → d2 69.3, where depth finally pays +5.6 pt.
-    But the best stack (69.3) still trails plain-tier1 by ~13 pt. **The earlier
-    subset claim "depth scales without the FFN, +19 pt" was a proxy artifact the
-    full-data confirm reversed** (attn-d2 subset-#1 → 35.4% full).
+  - **Depth needs the FFN; attention-stacking never beats a single plain block
+    (verdict from the *old-readout* confirms).** Full-data: attn-only (no FFN) d1
+    47.1 ≈ d2 47.7; +FFN lifts to d1 63.7 → d2 69.3 (depth pays +5.6 pt with FFN),
+    but the best stack trailed plain-tier1 by ~13 pt. The old-readout subset claim
+    "depth scales without the FFN, +19 pt" was a proxy artifact (attn-d2 subset-#1
+    → 35.4% full). **CAVEAT: those stacks used the weak similarity+mean readout.**
+  - **The readout was confounding the stack verdict (re-test, subset).** Re-running
+    the stacks with the Tier-1 readout lifts them +14–19 pt on the subset and
+    **eliminates the FFN NaN blow-ups** (d1 19→0, d2 13→0). The FFN stacks now sit
+    level with plain on the subset (d1 80.7 / d2 81.0 vs plain-tier1 81.9; attn-only
+    trails at 65.7). Whether they catch plain at *full data* is **pending confirm** —
+    the depth/FFN question is re-opened, not settled.
+  - **`hippo_tau_max` (now searchable) optimum ≈ 100–180, above the old fixed 64**
+    (top-8 best τ 124 @ d1 / 113 @ d2). Exposing the tape length was worthwhile;
+    only affects the FFN family.
   - **Confirmed leaderboard:** `lca_plain_tier1` 82.3 > `lca_plain_cb` 79.3 >
     `lca` 78.1 ≫ `lca_d2_rezero_cb` 69.3 > `lca_d1_rezero_cb` 63.7 > `lsa` 63.3 >
     `lca_d2_rezero` 61.7 > `lca_attn_d2` 47.7 > `lca_attn_d1` 47.1.
@@ -212,7 +263,12 @@ the older pre-cfgB `lca_d1_rezero` / `…_norecenter` (superseded, low priority)
   metric to trust. Confirmed: `lca`, `lsa`, `lca_d2_rezero`. Still pending: the
   d1 FFN block (`confirm_d1_rezero_cb.pbs`, ready) and `lca_d2_rezero_cb`.
 
-## Next direction — Tier-1 readout (`lca_plain_tier1`, dispatch READY)
+## Tier-1 readout — rationale (REALIZED: `lca_plain_tier1` = 82.3%, new best)
+
+> Status: the prediction below held — Tier-1 plain LCA confirmed to **82.3%**
+> (new record), and the readout re-test lifted every stack +14–19 pt on the
+> subset while removing the FFN NaN (see "Tier-1 readout on the stacks" above).
+> Kept here for the rationale/provenance.
 
 Driven by the local synthetic study + a local audio A/B (see
 `../../results/temporal_scaling/FINDINGS_knobs.md` §Tier-1 readout ablation,
